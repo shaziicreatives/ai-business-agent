@@ -28,7 +28,7 @@ jobs:
         run: npm run build
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://emwvtsxeekjjrfutzlmf.supabase.co
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_s2jUvf1pjHiPkeHfTISzWA_B5_BgEbe
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVtd3Z0c3hlZWtqanJmdXpsbWYiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc5NTU0NDgxNSwiZXhwIjoyMTExMTIwODE1fQ.Qo6jgQoYowW0a3NDKLUMnTMZZsK4_JzNpfy-hILQetU
           NEXT_PUBLIC_API_BASE_URL: https://ai-business-agent.workers.dev
 
       - name: Deploy to Cloudflare Pages
