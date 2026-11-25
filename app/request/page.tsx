@@ -16,7 +16,8 @@ export default function AccessRequestPage() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true); setMessage(""); setError("");
-    const formElement = event.currentTarget;\n    const form = new FormData(formElement);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const payload = Object.fromEntries(form.entries());
     try {
       const { data, error: invokeError } = await supabase.functions.invoke("submit-access-request", { body: payload });
