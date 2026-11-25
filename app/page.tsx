@@ -5,22 +5,35 @@ import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!);
 const sections = [
-  { id:"overview",label:"Overview",icon:"⌂" },{ id:"requests",label:"Access requests",icon:"⇥" },
-  { id:"businesses",label:"Authorized businesses",icon:"▦" },{ id:"connections",label:"Website connections",icon:"↔" },
-  { id:"ai",label:"AI control center",icon:"✧" },{ id:"automations",label:"Automations",icon:"⟳" },
-  { id:"tasks",label:"Task center",icon:"☷" },{ id:"usage",label:"Usage & costs",icon:"◷" },
-  { id:"security",label:"Audit & security",icon:"◇" },{ id:"settings",label:"Settings",icon:"⚙" },
+  { id:"overview",label:"Overview",icon:"▦",group:"Workspace" },
+  { id:"businesses",label:"Businesses",icon:"♙",group:"Workspace" },
+  { id:"requests",label:"Access requests",icon:"↗",group:"Workspace" },
+  { id:"connections",label:"Website connections",icon:"⌁",group:"Workspace" },
+  { id:"ai",label:"AI control center",icon:"✳",group:"Workspace" },
+  { id:"automations",label:"Automations",icon:"ϟ",group:"Workspace" },
+  { id:"tasks",label:"Task center",icon:"☑",group:"Workspace" },
+  { id:"payments",label:"Payments & invoices",icon:"▤",group:"Business Operations" },
+  { id:"usage",label:"Usage & costs",icon:"▥",group:"Business Operations" },
+  { id:"support",label:"Support & onboarding",icon:"☏",group:"Business Operations" },
+  { id:"team",label:"Team & roles",icon:"♧",group:"Administration" },
+  { id:"notifications",label:"Notifications",icon:"♧",group:"Administration" },
+  { id:"security",label:"Security & audit logs",icon:"⬡",group:"Administration" },
+  { id:"settings",label:"Settings",icon:"⚙",group:"Administration" },
 ] as const;
 type Section = typeof sections[number]["id"];
 type RowData = Record<string, any>;
 const blankCounts = { pending_requests:0,businesses:0,connections:0,tasks:0 };
 const placeholders: Partial<Record<Section,{title:string,description:string}>> = {
-  ai:{title:"AI control center",description:"AI model configuration and agent controls will appear here."},
-  automations:{title:"Automations",description:"Create and manage event-driven business workflows."},
-  usage:{title:"Usage & costs",description:"Track model usage, platform usage and infrastructure costs."},
+  ai:{title:"AI control center",description:"Configure AI providers, agent permissions and operating modes when you approve activation."},
+  automations:{title:"Automations",description:"Design and review event-driven workflows. Execution remains paused until explicitly enabled."},
+  payments:{title:"Payments & invoices",description:"Private financial records, platform invoices and payment reconciliation. No demo figures are displayed."},
+  support:{title:"Support & onboarding",description:"Track business onboarding, support requests and setup progress."},
+  team:{title:"Team & roles",description:"Review internal team access. Role changes remain restricted to secure owner administration."},
+  notifications:{title:"Notifications",description:"Important access, security and system alerts will appear here."},
+  usage:{title:"Usage & costs",description:"Track recorded model usage, platform usage and infrastructure costs."},
   settings:{title:"Settings",description:"Manage internal admin access and system preferences."},
 };
-const titles: Partial<Record<Section,string>> = { requests:"Access requests",businesses:"Authorized businesses",connections:"Website connections",tasks:"Task center",security:"Audit & security",automations:"Automations",usage:"Usage & costs" };
+const titles: Partial<Record<Section,string>> = { requests:"Access requests",businesses:"Businesses",connections:"Website connections",tasks:"Task center",security:"Security & audit logs",automations:"Automations",usage:"Usage & costs" };
 
 export default function Home(){
  const [active,setActive]=useState<Section>("overview"),[email,setEmail]=useState(""),[password,setPassword]=useState("");
@@ -124,9 +137,7 @@ export default function Home(){
  if(!adminEmail)return <main className="auth-screen"><form className="auth-card" onSubmit={login}><img className="auth-logo" src="/creative-clan-logo.webp" alt="Creative Clan — Social Media & Marketing Agency" /><p className="eyebrow">PRIVATE SUPER ADMIN</p><h1>Welcome back</h1><p className="auth-copy">Sign in with your authorized administrator account.</p><label>Email address<input type="email" autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)} required/></label><label>Password<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label>{authError&&<p className="auth-error">{authError}</p>}<button className="auth-submit" disabled={busy}>{busy?"Verifying access…":"Sign in securely"}</button><button type="button" className="forgot-link" onClick={()=>void sendPasswordReset()} disabled={busy}>{busy?"Sending…":"Forgot password?"}</button>{recoverySent&&<p className="recovery-success">If this admin email is registered, a password reset link has been sent. Check inbox and spam.</p>}<small>No public signup or client login. Only owner-authorized accounts can enter.</small></form></main>;
 
  return <main className="admin-shell">
-  <aside className="sidebar"><a className="brand" href="#" onClick={e=>{e.preventDefault();setActive("overview");}}><img className="sidebar-logo" src="/favicon.webp" alt="Creative Clan" /><span className="brand-name">Creative <b>Clan</b><small>PRIVATE ADMIN CONSOLE</small></span></a><div className="nav-caption">CONTROL CENTER</div><nav className="side-nav" aria-label="Admin navigation">
-   {sections.map(s=><button key={s.id} className={active===s.id?"nav-link active":"nav-link"} onClick={()=>setActive(s.id)}><span className="nav-icon">{s.icon}</span><span>{s.label}</span>{s.id==="requests"&&<span className="nav-count">{counts.pending_requests}</span>}</button>)}
-  </nav><div className="sidebar-bottom"><div className="secure-mark">◇</div><div><b>Private workspace</b><small>Owner access only</small></div><span className="secure-dot"/></div></aside>
+  <aside className="sidebar"><a className="brand" href="#" onClick={e=>{e.preventDefault();setActive("overview");}}><img className="sidebar-logo" src="/favicon.webp" alt="Creative Clan" /><span className="brand-name">Creative <b>Clan</b><small>PRIVATE ADMIN CONSOLE</small></span></a>{(["Workspace","Business Operations","Administration"] as const).map(group=><div className="nav-group" key={group}><div className="nav-caption">{group}</div><nav className="side-nav" aria-label={group}>{sections.filter(s=>s.group===group).map(s=><button key={s.id} className={active===s.id?"nav-link active":"nav-link"} onClick={()=>setActive(s.id)}><span className="nav-icon">{s.icon}</span><span>{s.label}</span>{s.id==="requests"&&<span className="nav-count">{counts.pending_requests}</span>}</button>)}</nav></div>)}<div className="sidebar-bottom"><div className="secure-mark">◇</div><div><b>Private workspace</b><small>Owner access only</small></div><span className="secure-dot"/></div></aside>
   <section className="main-area"><header className="topbar"><div className="breadcrumbs"><span>Creative Clan</span><i>/</i>{current.label}</div><div className="topbar-right"><span className="environment"><i/> PRIVATE ADMIN</span><span className="admin-email">{adminEmail}</span><button className="logout-button" onClick={()=>supabase.auth.signOut()}>Sign out</button></div></header>
    <div className="content">
     {active==="overview"?<>
@@ -135,7 +146,7 @@ export default function Home(){
      <div className="section-title"><div><h2>System overview</h2><p>Current records from your private control plane.</p></div><button className="small-action" onClick={()=>void loadOverview()}>Refresh</button></div>
      <div className="stats-grid"><article className="stat-card"><span>Pending requests</span><strong>{counts.pending_requests}</strong><small>Awaiting your review</small><span className="stat-icon">⇥</span></article><article className="stat-card"><span>Authorized businesses</span><strong>{counts.businesses}</strong><small>Active approvals</small><span className="stat-icon">▦</span></article><article className="stat-card"><span>Active connections</span><strong>{counts.connections}</strong><small>Connected platforms</small><span className="stat-icon">↔</span></article><article className="stat-card"><span>Agent tasks</span><strong>{counts.tasks}</strong><small>Recorded tasks</small><span className="stat-icon">☷</span></article></div>
      {dataError&&<p className="data-error">{dataError}</p>}
-     <div className="overview-grid"><section className="panel"><div className="panel-heading"><div><h2>System modules</h2><p>Private control areas</p></div><span className="module-count">10 MODULES</span></div><div className="module-list">{sections.slice(1).map(s=><button key={s.id} className="module-row" onClick={()=>setActive(s.id)}><span className="module-icon">{s.icon}</span><span>{s.label}</span><span className="module-arrow">↗</span></button>)}</div></section>
+     <div className="overview-grid"><section className="panel"><div className="panel-heading"><div><h2>System modules</h2><p>Private control areas</p></div><span className="module-count">14 MODULES</span></div><div className="module-list">{sections.slice(1).map(s=><button key={s.id} className="module-row" onClick={()=>setActive(s.id)}><span className="module-icon">{s.icon}</span><span>{s.label}</span><span className="module-arrow">↗</span></button>)}</div></section>
      <section className="panel architecture-panel"><p className="eyebrow">ARCHITECTURE RULE</p><h2>Your clients keep using their own platforms.</h2><p>The agent reads and acts through approved integrations. Their store data stays in Shopify or the original platform — it is not copied into a second inventory system.</p><div className="architecture-flow"><span>Client platform</span><i>↔</i><span>AI agent</span><i>↔</i><span>Admin control</span></div><div className="security-foot"><span>◇</span> Permission-based access · Admin approvals · Audit trail</div></section></div>
     </>:<>
      <div className="page-heading"><div><p className="eyebrow">{live?"LIVE ADMIN DATA":"AGENT CONFIGURATION"}</p><h1>{titles[active]||placeholders[active]?.title}</h1><p className="subheading">{active==="requests"?"Review business requests and approve or decline access.":active==="businesses"?"Internal records of approved businesses. No client portal or login is created.":active==="connections"?"Officially authorized platform connections and their status.":active==="tasks"?"Agent execution history and task states.":active==="security"?"Internal administrator actions and audit trail.":active==="automations"?"Review automation definitions stored in the control plane. Execution remains disabled until the agent runtime is configured.":active==="usage"?"Review recorded model and platform usage with estimated costs.":placeholders[active]?.description}</p></div><span className="date-label">PRIVATE ADMIN AREA</span></div>
