@@ -31,7 +31,7 @@ export default function AccessRequestPage() {
 
   return <main className="request-screen">
     <form className="request-card" onSubmit={submit}>
-      <a className="request-brand" href="/"> <img className="request-logo" src="/creative-clan-mark.svg" alt="Creative Clan" /><span>Creative <b>Clan</b></span></a>
+      <a className="request-brand" href="/"> <img className="request-logo" src="/favicon.webp" alt="Creative Clan" /><span>Creative <b>Clan</b></span></a>
       <p className="eyebrow">BUSINESS ACCESS REQUEST</p>
       <h1>Connect your existing business platform</h1>
       <p className="request-intro">Share your business details. Our team will review your request before any platform connection is authorized. Never submit passwords or API keys here.</p>
