@@ -72,8 +72,17 @@ Private, owner-operated control plane for an AI business agent. This is **not** 
 - Do not expose Supabase service-role keys in the frontend or commit secrets.
 - Public request submissions must pass through a protected server endpoint with validation and abuse controls; do not grant anonymous users direct read access to private admin tables.
 - Admin authorization must be enforced server-side, not only by hiding UI controls.
+- Admin-only Edge Functions restrict browser CORS access to `https://ai-business-agent-admin.pages.dev`; the public access-request endpoint remains public by design.
+- The `integration_secrets` table has no `anon` or `authenticated` table grants; secrets remain server-side only.
 - RLS must remain enabled on exposed tables. Current private tables intentionally have no browser-role policies and are accessed by server-side functions only.
 - High-impact business actions must remain approval-gated until a deliberate permissions policy is implemented and tested.
+
+## Security hardening log (2026-11-25)
+
+- Revoked all direct table privileges on `public.integration_secrets` from `anon` and `authenticated`; verified that no grants remain for those browser roles.
+- Restricted CORS on `admin-console` and `admin-verify` to the production admin origin. Deployed `admin-console` v5 and `admin-verify` v4.
+- Added 26 missing foreign-key indexes identified from PostgreSQL catalog checks and Supabase performance advisors.
+- Re-ran Supabase advisors. The unindexed-foreign-key finding is cleared. Remaining findings: leaked-password protection disabled (must be enabled in Supabase Auth settings); 14 RLS init-plan performance warnings on workspace-related policies. The 44 unused-index notices are expected at this stage because the tables are empty and the new indexes have not yet seen workload. Ten RLS-enabled/no-policy notices on private admin tables are intentional: browser roles have no direct grants/policies and the server functions enforce admin authorization.
 
 ## Cost policy
 
