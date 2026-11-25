@@ -1,4 +1,5 @@
 const ADMIN_ORIGIN = "https://ai-business-agent-admin.pages.dev";
+function isAllowedOrigin(origin) { return origin === ADMIN_ORIGIN || /^https:\/\/[a-z0-9-]+\.ai-business-agent-admin\.pages\.dev$/.test(origin || ""); }
 const VERSION = "0.3.0";
 const MAX_BODY_BYTES = 32 * 1024;
 
@@ -12,7 +13,7 @@ function headersFor(requestId, origin) {
     "x-request-id": requestId,
     "vary": "Origin"
   };
-  if (origin === ADMIN_ORIGIN) {
+  if (isAllowedOrigin(origin)) {
     headers["access-control-allow-origin"] = ADMIN_ORIGIN;
     headers["access-control-allow-methods"] = "GET, POST, OPTIONS";
     headers["access-control-allow-headers"] = "authorization, content-type, x-request-id";
@@ -52,7 +53,7 @@ export default {
     const url = new URL(request.url);
     let response;
 
-    if (origin && origin !== ADMIN_ORIGIN) {
+    if (origin && !isAllowedOrigin(origin)) {
       response = json({ ok: false, error: "Origin not allowed", request_id: requestId }, 403, requestId, null);
     } else if (request.method === "OPTIONS") {
       response = json(null, 204, requestId, origin);

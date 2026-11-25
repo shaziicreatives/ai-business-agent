@@ -97,3 +97,6 @@ Private, owner-operated control plane for an AI business agent. This is **not** 
 ## Cost policy
 
 Prefer free tiers and no-cost services. Check current limits before relying on a free tier. Do not activate paid services, AI providers, or upgrades without the owner's explicit approval.
+
+
+Admin gateway CORS accepts the stable Pages hostname and deployment aliases for this project only.
