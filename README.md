@@ -1,16 +1,16 @@
 # Creative Clan — AI Business Agent
 
-Private, owner-operated control plane for an autonomous AI business agent. This is **not** an inventory-management SaaS and does not provide client accounts, client dashboards, or client subscription pages.
+Private, owner-operated control plane for an AI business agent. This is **not** an inventory-management SaaS and does not provide client accounts, client dashboards, or client subscription pages.
 
 ## Product model
 
 - Creative Clan operates one private Super Admin console for the owner and authorized internal staff.
 - A business owner submits an access request through a separate public request form.
 - The admin reviews the request. A business is not connected until its owner grants access through an official OAuth or supported delegated authorization flow.
-- The agent works against the business's existing platform (for example Shopify or WooCommerce) using the granted API scopes.
+- The agent is intended to work against the business's existing platform (for example Shopify or WooCommerce) using explicitly granted API scopes.
 - The original commerce platform remains the source of truth. Product, stock, order, and customer datasets must not be copied into Supabase as a second inventory database.
 - Supabase stores only the minimum control-plane data required: requests, connection metadata, secure secret references, tasks, approvals, audit events, and usage summaries.
-- Sensitive actions (such as refunds, cancellations, destructive product changes, or price changes) can require admin approval.
+- Sensitive actions (such as refunds, cancellations, destructive product changes, or price changes) require approval before execution.
 - Connections must be revocable and every consequential action must be auditable.
 
 ## Private admin modules
@@ -28,11 +28,41 @@ Private, owner-operated control plane for an autonomous AI business agent. This 
 
 ## Stack
 
-- **Frontend:** Next.js App Router, React, TypeScript
+- **Frontend:** Next.js App Router, React, TypeScript, statically exported to Cloudflare Pages
 - **Control-plane database and auth:** Supabase
-- **API, OAuth callbacks and webhooks:** Cloudflare Workers
-- **AI inference:** Provider to be selected and connected after evaluating free-tier limits and model suitability
-- **Source control:** GitHub
+- **API, OAuth callbacks and webhooks:** Cloudflare Workers (integration runtime not yet activated)
+- **AI inference:** Provider/model intentionally not selected or connected yet
+- **Source control and deployment:** GitHub Actions → Cloudflare Pages
+
+## Current deployment
+
+- **Admin website:** https://ai-business-agent-admin.pages.dev
+- **GitHub repository:** https://github.com/shaziicreatives/ai-business-agent
+- **Supabase project:** `ai-business-agent` (Mumbai, Free tier)
+- **Cloudflare Pages project:** `ai-business-agent-admin`
+- GitHub Actions builds the static Next.js export and deploys the `out` directory to Cloudflare Pages on pushes to `main`.
+- The production deployment has been created successfully. A successful static deployment does not, by itself, prove that authentication and all backend flows have passed end-to-end tests.
+
+## Implemented
+
+- Private admin login UI using Supabase Auth.
+- Server-side admin verification through the `admin-verify` Edge Function. Only active `owner`, `admin`, or `operator` records are accepted.
+- Public business access request form, backed by `submit-access-request`. It validates fields, uses a honeypot, and does not accept passwords or API keys.
+- `admin-console` Edge Function verifies the bearer token and active admin role before reading or reviewing records.
+- Admin console reads overview counts, access requests, authorized businesses, platform connection metadata, tasks, automation definitions, usage records, and audit events.
+- Admin can approve or decline pending access requests. Approval creates an internal authorized-business record; it does not create a platform connection or grant platform permissions.
+- Supabase project is active and healthy. The private control-plane schema is applied. All relevant tables have RLS enabled, with no browser-role policies; private data access is through server-side service-role functions.
+- No demo businesses, requests, usage records, or fake activity have been seeded.
+
+## Not yet implemented or verified
+
+- Live end-to-end browser test of admin sign-in, authorization, dashboard data loading, and request submission/review.
+- OAuth/delegated platform connections, token storage/rotation, revocation, and webhooks.
+- AI provider/model selection, inference, agent orchestration, and tool execution.
+- Automation scheduling and execution runtime.
+- Real usage/cost metering and operational alerts.
+- Auth hardening: Supabase leaked-password protection is currently reported disabled and should be enabled before production onboarding.
+- Security and operational review of the Cloudflare API Worker; its existing health endpoint is a placeholder and it is not the production integration runtime.
 
 ## Security rules
 
@@ -42,24 +72,9 @@ Private, owner-operated control plane for an autonomous AI business agent. This 
 - Do not expose Supabase service-role keys in the frontend or commit secrets.
 - Public request submissions must pass through a protected server endpoint with validation and abuse controls; do not grant anonymous users direct read access to private admin tables.
 - Admin authorization must be enforced server-side, not only by hiding UI controls.
-- RLS must be enabled on exposed tables and policies must reflect the private admin access model.
-
-## Current implementation status
-
-- The Next.js page is a **frontend foundation only**. It uses empty states and zero counts rather than invented businesses or demo activity.
-- Supabase project is active. An additive private control-plane schema migration has been applied and verified. It adds private admin, access request, authorized business, connection metadata, approval, automation, task, usage and audit tables. These tables have RLS enabled, no browser-role policies, and explicit access is granted only to the backend service role. The earlier workspace/inventory tables were not deleted or repurposed.
-- Cloudflare has two placeholder Workers. The API Worker currently exposes only a health endpoint; the preview Worker contains an obsolete inventory-demo UI. Neither is a production integration.
-- Admin authentication, the public request pipeline, OAuth connections, AI provider/model, task execution, approvals, and live analytics are not yet connected.
-- Do not describe the system as production-ready until these services are implemented and tested end-to-end.
-
-## Run locally
-
-1. Use Node.js 20.9 or newer.
-2. Clone this repository and run `npm install`.
-3. Copy `.env.example` to `.env.local`.
-4. Add only the required public Supabase URL and publishable key to browser-exposed variables. Keep service credentials in server-side secrets.
-5. Run `npm run dev` and open http://localhost:3000.
+- RLS must remain enabled on exposed tables. Current private tables intentionally have no browser-role policies and are accessed by server-side functions only.
+- High-impact business actions must remain approval-gated until a deliberate permissions policy is implemented and tested.
 
 ## Cost policy
 
-Prefer free tiers and no-cost services. Check current limits before relying on a free tier. Do not activate paid services or upgrade plans without the owner's explicit approval.
+Prefer free tiers and no-cost services. Check current limits before relying on a free tier. Do not activate paid services, AI providers, or upgrades without the owner's explicit approval.
