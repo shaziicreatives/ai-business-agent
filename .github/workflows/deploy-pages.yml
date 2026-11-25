@@ -29,7 +29,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://emwvtsxeekjjrfutzlmf.supabase.co
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVtd3Z0c3hlZWtqanJmdXR6bG1mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTU1NDQ4MTUsImV4cCI6MjExMTEyMDgxNX0.Qo6jgQoYowW0a3NDKLUMnTMZZsK4_JzNpfy-hILQetU
-          NEXT_PUBLIC_API_BASE_URL: https://ai-business-agent.workers.dev
+          NEXT_PUBLIC_API_BASE_URL: https://ai-business-agent-api.ai-business-agent.workers.dev
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
