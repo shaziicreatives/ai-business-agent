@@ -14,7 +14,7 @@ function headersFor(requestId, origin) {
     "vary": "Origin"
   };
   if (isAllowedOrigin(origin)) {
-    headers["access-control-allow-origin"] = ADMIN_ORIGIN;
+    headers["access-control-allow-origin"] = origin;
     headers["access-control-allow-methods"] = "GET, POST, OPTIONS";
     headers["access-control-allow-headers"] = "authorization, content-type, x-request-id";
     headers["access-control-max-age"] = "600";
