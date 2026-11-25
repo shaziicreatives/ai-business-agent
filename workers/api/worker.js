@@ -1,5 +1,5 @@
 const ADMIN_ORIGIN = "https://ai-business-agent-admin.pages.dev";
-const VERSION = "0.2.0";
+const VERSION = "0.2.1";
 
 function json(body, status, requestId, origin) {
   const headers = {
@@ -18,7 +18,7 @@ function json(body, status, requestId, origin) {
     headers["access-control-allow-headers"] = "authorization, content-type, x-request-id";
     headers["access-control-max-age"] = "600";
   }
-  return new Response(JSON.stringify(body), { status, headers });
+  return new Response(status === 204 ? null : JSON.stringify(body), { status, headers });
 }
 
 function statusPayload() {
@@ -48,7 +48,7 @@ export default {
     if (origin && origin !== ADMIN_ORIGIN) {
       response = json({ ok: false, error: "Origin not allowed", request_id: requestId }, 403, requestId, null);
     } else if (request.method === "OPTIONS") {
-      response = json({ ok: true }, 204, requestId, origin);
+      response = json(null, 204, requestId, origin);
     } else if (request.method !== "GET") {
       response = json({ ok: false, error: "Method not allowed", request_id: requestId }, 405, requestId, origin);
     } else if (url.pathname === "/health" || url.pathname === "/v1/status") {
