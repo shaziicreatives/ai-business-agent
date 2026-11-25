@@ -1,6 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
+);
 
 const sections = [
   { id: "overview", label: "Overview", icon: "⌂" },
@@ -76,7 +82,70 @@ const emptyStates: Record<Exclude<SectionId, "overview">, { eyebrow: string; tit
 
 export default function Home() {
   const [active, setActive] = useState<SectionId>("overview");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [adminEmail, setAdminEmail] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  async function checkAdmin(token: string) {
+    const { data, error } = await supabase.functions.invoke("admin-verify", {
+      headers: { Authorization: "Bearer " + token },
+      body: {},
+    });
+    if (error || !data?.authorized) {
+      await supabase.auth.signOut();
+      throw new Error("This account is not authorized for the private admin panel.");
+    }
+    setAdminEmail(data.email || "");
+  }
+
+  useEffect(() => {
+    let active = true;
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (data.session) {
+        try { await checkAdmin(data.session.access_token); }
+        catch (e) { if (active) setAuthError(e instanceof Error ? e.message : "Access check failed."); }
+      }
+      if (active) setChecking(false);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!session) { if (active) setAdminEmail(""); return; }
+      try { await checkAdmin(session.access_token); }
+      catch (e) { if (active) setAuthError(e instanceof Error ? e.message : "Access check failed."); }
+    });
+    return () => { active = false; sub.subscription.unsubscribe(); };
+  }, []);
+
+  async function login(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault(); setBusy(true); setAuthError("");
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error || !data.session) throw new Error(error?.message || "Sign in failed.");
+      await checkAdmin(data.session.access_token);
+    } catch (e) { setAuthError(e instanceof Error ? e.message : "Unable to sign in."); }
+    finally { setBusy(false); }
+  }
   const current = sections.find((item) => item.id === active)!;
+
+  if (checking) return <main className="auth-screen"><div className="auth-card"><span className="brand-symbol">C</span><h1>Creative Clan</h1><p>Checking private access…</p></div></main>;
+
+  if (!adminEmail) return (
+    <main className="auth-screen">
+      <form className="auth-card" onSubmit={login}>
+        <span className="brand-symbol">C</span>
+        <p className="eyebrow">PRIVATE SUPER ADMIN</p>
+        <h1>Welcome back</h1>
+        <p className="auth-copy">Sign in with your authorized administrator account.</p>
+        <label>Email address<input type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} required /></label>
+        <label>Password<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /></label>
+        {authError && <p className="auth-error">{authError}</p>}
+        <button className="auth-submit" disabled={busy}>{busy ? "Verifying access…" : "Sign in securely"}</button>
+        <small>No public signup or client login. Only owner-authorized accounts can enter.</small>
+      </form>
+    </main>
+  );
 
   return (
     <main className="admin-shell">
@@ -106,7 +175,7 @@ export default function Home() {
       <section className="main-area">
         <header className="topbar">
           <div className="breadcrumbs"><span>Creative Clan</span><i>/</i>{current.label}</div>
-          <div className="topbar-right"><span className="environment"><i /> FOUNDATION MODE</span><span className="admin-avatar">CC</span></div>
+          <div className="topbar-right"><span className="environment"><i /> PRIVATE ADMIN</span><span className="admin-email">{adminEmail}</span><button className="logout-button" onClick={() => supabase.auth.signOut()}>Sign out</button></div>
         </header>
 
         <div className="content">
