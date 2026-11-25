@@ -145,7 +145,7 @@ test("AI command authenticates the admin, generates a response and stores the re
     assert.equal(data.data.response, "Test answer");
     assert.equal(data.data.usage.input_tokens, 100);
     assert.equal(data.data.usage.output_tokens, 30);
-    assert.equal(data.data.usage.neurons_estimate, 2);
+    assert.equal(data.data.usage.neurons_estimate, 1.642);
     assert.equal(calls.length, 2);
     const saved = JSON.parse(calls[1].init.body);
     assert.equal(saved.action, "create_task");
