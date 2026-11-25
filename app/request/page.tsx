@@ -16,13 +16,13 @@ export default function AccessRequestPage() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true); setMessage(""); setError("");
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;\n    const form = new FormData(formElement);
     const payload = Object.fromEntries(form.entries());
     try {
       const { data, error: invokeError } = await supabase.functions.invoke("submit-access-request", { body: payload });
       if (invokeError || !data?.ok) throw new Error(data?.error || invokeError?.message || "Could not submit request.");
       setMessage("Request received. Creative Clan will review your details.");
-      event.currentTarget.reset();
+      formElement.reset();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
     } finally { setBusy(false); }
