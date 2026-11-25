@@ -1,6 +1,9 @@
 name: Deploy AI Business Agent Admin to Cloudflare Pages
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -17,7 +20,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
       - name: Install dependencies
         run: npm install
@@ -26,7 +28,7 @@ jobs:
         run: npm run build
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://emwvtsxeekjjrfutzlmf.supabase.co
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_s2jUvf1pjHiPkeFhTISzWA_B5_BgEbe
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_s2jUvf1pjHiPkeHfTISzWA_B5_BgEbe
           NEXT_PUBLIC_API_BASE_URL: https://ai-business-agent.workers.dev
 
       - name: Deploy to Cloudflare Pages
