@@ -4,7 +4,8 @@ import worker from "./worker.js";
 
 const env = {
   SUPABASE_URL: "https://project.example.supabase.co",
-  SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test_only"
+  SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test_only",
+  AI: { run: async () => ({ response: "Test answer", usage: { prompt_tokens: 100, completion_tokens: 30 } }) }
 };
 const ADMIN_ORIGIN = "https://ai-business-agent-admin.pages.dev";
 
@@ -123,4 +124,41 @@ test("reports missing Worker bindings instead of calling Supabase", async () => 
     body: "{}"
   }), {});
   assert.equal(response.status, 503);
+});
+
+test("AI command authenticates the admin, generates a response and stores the result", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    if (String(url).endsWith("/admin-verify")) return new Response(JSON.stringify({ authorized: true }), { status: 200 });
+    return new Response(JSON.stringify({ ok: true, data: { id: "task-123" } }), { status: 200 });
+  };
+  try {
+    const response = await worker.fetch(new Request("https://api.example/v1/agent/command", {
+      method: "POST",
+      headers: { Origin: ADMIN_ORIGIN, Authorization: "Bearer test-user-jwt", "Content-Type": "application/json" },
+      body: JSON.stringify({ instruction: "Summarize my business performance" })
+    }), env);
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.data.response, "Test answer");
+    assert.equal(data.data.usage.input_tokens, 100);
+    assert.equal(data.data.usage.output_tokens, 30);
+    assert.equal(data.data.usage.neurons_estimate, 2);
+    assert.equal(calls.length, 2);
+    const saved = JSON.parse(calls[1].init.body);
+    assert.equal(saved.action, "create_task");
+    assert.equal(saved.ai_result.model, "@cf/zai-org/glm-4.7-flash");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("AI command rejects requests without an admin bearer token", async () => {
+  const response = await worker.fetch(new Request("https://api.example/v1/agent/command", {
+    method: "POST", headers: { Origin: ADMIN_ORIGIN, "Content-Type": "application/json" },
+    body: JSON.stringify({ instruction: "Hello" })
+  }), env);
+  assert.equal(response.status, 401);
 });
