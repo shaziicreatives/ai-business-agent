@@ -1,0 +1,37 @@
+name: Deploy AI Business Agent Admin to Cloudflare Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build static site
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://emwvtsxeekjjrfutzlmf.supabase.co
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_API_BASE_URL: https://ai-business-agent.workers.dev
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: 41dab722cf0e73632d542b48d248e1f2
+          command: pages deploy out --project-name=ai-business-agent-admin --branch=main
