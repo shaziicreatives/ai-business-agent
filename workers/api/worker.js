@@ -1,5 +1,5 @@
 const ADMIN_ORIGIN = "https://ai-business-agent-admin.pages.dev";
-const VERSION = "0.2.1";
+const VERSION = "0.2.2";
 
 function json(body, status, requestId, origin) {
   const headers = {
@@ -14,7 +14,7 @@ function json(body, status, requestId, origin) {
   };
   if (origin === ADMIN_ORIGIN) {
     headers["access-control-allow-origin"] = ADMIN_ORIGIN;
-    headers["access-control-allow-methods"] = "GET, POST, OPTIONS";
+    headers["access-control-allow-methods"] = "GET, OPTIONS";
     headers["access-control-allow-headers"] = "authorization, content-type, x-request-id";
     headers["access-control-max-age"] = "600";
   }
