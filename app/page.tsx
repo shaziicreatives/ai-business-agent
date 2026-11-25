@@ -54,9 +54,8 @@ export default function Home(){
      if(data.session){try{await verify(data.session.access_token);}catch(e){if(mounted)setAuthError(e instanceof Error?e.message:"Access check failed.");}}
      if(mounted)setChecking(false);
    });
-   const {data:sub}=supabase.auth.onAuthStateChange(async(_event,session)=>{
-     if(!session){if(mounted)setAdminEmail("");return;}
-     try{await verify(session.access_token);}catch(e){if(mounted)setAuthError(e instanceof Error?e.message:"Access check failed.");}
+   const {data:sub}=supabase.auth.onAuthStateChange((_event,session)=>{
+     if(!session && mounted){setAdminEmail("");setRows([]);setCounts(blankCounts);}
    });
    return()=>{mounted=false;sub.subscription.unsubscribe();};
  },[]);
