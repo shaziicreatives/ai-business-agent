@@ -46,8 +46,8 @@ Private, owner-operated control plane for an autonomous AI business agent. This 
 
 ## Current implementation status
 
-- The current Next.js page is a **frontend foundation only**. It uses empty states and zero counts rather than invented businesses or demo activity.
-- Supabase project exists, but its current schema includes an earlier workspace/inventory model. Those tables have not been deleted or repurposed. A safe additive migration and an explicit plan for the old tables are still required.
+- The Next.js page is a **frontend foundation only**. It uses empty states and zero counts rather than invented businesses or demo activity.
+- Supabase project is active. An additive private control-plane schema migration has been applied and verified. It adds private admin, access request, authorized business, connection metadata, approval, automation, task, usage and audit tables. These tables have RLS enabled, no browser-role policies, and explicit access is granted only to the backend service role. The earlier workspace/inventory tables were not deleted or repurposed.
 - Cloudflare has two placeholder Workers. The API Worker currently exposes only a health endpoint; the preview Worker contains an obsolete inventory-demo UI. Neither is a production integration.
 - Admin authentication, the public request pipeline, OAuth connections, AI provider/model, task execution, approvals, and live analytics are not yet connected.
 - Do not describe the system as production-ready until these services are implemented and tested end-to-end.
