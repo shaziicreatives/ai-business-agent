@@ -62,8 +62,8 @@ Private, owner-operated control plane for an AI business agent. This is **not** 
 - Automation scheduling and execution runtime.
 - Real usage/cost metering and operational alerts.
 - Auth hardening: stronger password length/character requirements were saved. Supabase leaked-password protection remains unavailable on the Free plan (Pro and above); do not upgrade solely for this feature without explicit cost approval.
-- End-to-end HTTP verification of the new Worker `/health` and `/v1/status` routes from a real browser/client.
-- Admin API endpoints, OAuth callbacks, webhooks, and integration runtime on Cloudflare Workers.
+- End-to-end browser test of admin login, gateway authorization, dashboard data loading, and public request submission.
+- OAuth callbacks, webhooks, and business integration runtime on Cloudflare Workers.
 
 ## Security rules
 
@@ -78,7 +78,7 @@ Private, owner-operated control plane for an AI business agent. This is **not** 
 - RLS must remain enabled on exposed tables. Current private tables intentionally have no browser-role policies and are accessed by server-side functions only.
 - High-impact business actions must remain approval-gated until a deliberate permissions policy is implemented and tested.
 
-## Cloudflare API foundation (2026-11-25)\n\n- Deployed `ai-business-agent-api` Worker v0.2.2 with `/health`, `/v1/status`, and `/` informational routes.\n- Restricted CORS to the production admin origin; added request IDs, no-store caching, basic security headers, and structured request logs.\n- Enabled Workers observability, invocation logs, and traces.\n- Worker reports `foundation_only` deliberately: admin API, AI model, business integrations, and automation execution remain disabled until implemented and tested.\n- Worker source is versioned at `workers/api/worker.js`.\n\n## Security hardening log (2026-11-25)
+## Cloudflare API foundation (2026-11-25)\n\n- Deployed `ai-business-agent-api` Worker v0.3.0 with `/health`, `/v1/status`, `/v1/admin/verify`, `/v1/admin/console`, and `/v1/access-requests` routes. Admin requests forward the user's bearer token to Supabase Edge Functions; service-role credentials never enter the Worker.\n- Restricted CORS to the production admin origin; added request IDs, no-store caching, basic security headers, and structured request logs.\n- Enabled Workers observability, invocation logs, and traces.\n- Worker reports `gateway_foundation`: the admin API gateway and public request proxy are implemented, while AI model, business integrations, and automation execution remain disabled until implemented and tested.\n- Worker source is versioned at `workers/api/worker.js`.\n\n## Security hardening log (2026-11-25)
 
 - Revoked all direct table privileges on `public.integration_secrets` from `anon` and `authenticated`; verified that no grants remain for those browser roles.
 - Restricted CORS on `admin-console` and `admin-verify` to the production admin origin. Deployed `admin-console` v5 and `admin-verify` v4.

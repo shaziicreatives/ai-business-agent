@@ -20,8 +20,13 @@ export default function AccessRequestPage() {
     const form = new FormData(formElement);
     const payload = Object.fromEntries(form.entries());
     try {
-      const { data, error: invokeError } = await supabase.functions.invoke("submit-access-request", { body: payload });
-      if (invokeError || !data?.ok) throw new Error(data?.error || invokeError?.message || "Could not submit request.");
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/v1/access-requests`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.ok) throw new Error(data?.error || "Could not submit request.");
       setMessage("Request received. Creative Clan will review your details.");
       formElement.reset();
     } catch (e) {

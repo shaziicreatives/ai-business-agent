@@ -29,8 +29,15 @@ export default function Home(){
  const [notes,setNotes]=useState<Record<string,string>>({}),[reviewing,setReviewing]=useState("");
 
  const action=useCallback(async(name:string,extra:RowData={})=>{
-   const {data,error}=await supabase.functions.invoke("admin-console",{body:{action:name,...extra}});
-   if(error||!data?.ok) throw new Error(data?.error||error?.message||"Admin request failed.");
+   const {data:{session},error:sessionError}=await supabase.auth.getSession();
+   if(sessionError||!session) throw new Error("Your admin session has expired. Please sign in again.");
+   const response=await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/v1/admin/console`,{
+     method:"POST",
+     headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`},
+     body:JSON.stringify({action:name,...extra})
+   });
+   const data=await response.json().catch(()=>({}));
+   if(!response.ok||!data?.ok) throw new Error(data?.error||"Admin request failed.");
    return data;
  },[]);
  const loadOverview=useCallback(async()=>{
@@ -44,8 +51,11 @@ export default function Home(){
    finally{setDataBusy(false);}
  },[action]);
  async function verify(token:string){
-   const {data,error}=await supabase.functions.invoke("admin-verify",{headers:{Authorization:"Bearer "+token},body:{}});
-   if(error||!data?.authorized){await supabase.auth.signOut();throw new Error("This account is not authorized for the private admin panel.");}
+   const response=await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/v1/admin/verify`,{
+     method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+token},body:"{}"
+   });
+   const data=await response.json().catch(()=>({}));
+   if(!response.ok||!data?.authorized){await supabase.auth.signOut();throw new Error("This account is not authorized for the private admin panel.");}
    setAdminEmail(data.email||"");
  }
  useEffect(()=>{

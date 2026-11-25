@@ -1,76 +1,91 @@
-const ADMIN_ORIGIN = "https://ai-business-agent-admin.pages.dev";
-const VERSION = "0.2.2";
+# Creative Clan — AI Business Agent
 
-function json(body, status, requestId, origin) {
-  const headers = {
-    "content-type": "application/json; charset=utf-8",
-    "cache-control": "no-store, max-age=0",
-    "x-content-type-options": "nosniff",
-    "referrer-policy": "no-referrer",
-    "x-frame-options": "DENY",
-    "permissions-policy": "camera=(), microphone=(), geolocation=()",
-    "x-request-id": requestId,
-    "vary": "Origin"
-  };
-  if (origin === ADMIN_ORIGIN) {
-    headers["access-control-allow-origin"] = ADMIN_ORIGIN;
-    headers["access-control-allow-methods"] = "GET, OPTIONS";
-    headers["access-control-allow-headers"] = "authorization, content-type, x-request-id";
-    headers["access-control-max-age"] = "600";
-  }
-  return new Response(status === 204 ? null : JSON.stringify(body), { status, headers });
-}
+Private, owner-operated control plane for an AI business agent. This is **not** an inventory-management SaaS and does not provide client accounts, client dashboards, or client subscription pages.
 
-function statusPayload() {
-  return {
-    ok: true,
-    service: "ai-business-agent-api",
-    version: VERSION,
-    status: "foundation_only",
-    runtime: "cloudflare-workers",
-    capabilities: {
-      health_checks: true,
-      admin_api: false,
-      ai_model: false,
-      business_integrations: false,
-      automation_execution: false
-    }
-  };
-}
+## Product model
 
-export default {
-  async fetch(request) {
-    const requestId = crypto.randomUUID();
-    const origin = request.headers.get("Origin");
-    const url = new URL(request.url);
-    let response;
+- Creative Clan operates one private Super Admin console for the owner and authorized internal staff.
+- A business owner submits an access request through a separate public request form.
+- The admin reviews the request. A business is not connected until its owner grants access through an official OAuth or supported delegated authorization flow.
+- The agent is intended to work against the business's existing platform (for example Shopify or WooCommerce) using explicitly granted API scopes.
+- The original commerce platform remains the source of truth. Product, stock, order, and customer datasets must not be copied into Supabase as a second inventory database.
+- Supabase stores only the minimum control-plane data required: requests, connection metadata, secure secret references, tasks, approvals, audit events, and usage summaries.
+- Sensitive actions (such as refunds, cancellations, destructive product changes, or price changes) require approval before execution.
+- Connections must be revocable and every consequential action must be auditable.
 
-    if (origin && origin !== ADMIN_ORIGIN) {
-      response = json({ ok: false, error: "Origin not allowed", request_id: requestId }, 403, requestId, null);
-    } else if (request.method === "OPTIONS") {
-      response = json(null, 204, requestId, origin);
-    } else if (request.method !== "GET") {
-      response = json({ ok: false, error: "Method not allowed", request_id: requestId }, 405, requestId, origin);
-    } else if (url.pathname === "/health" || url.pathname === "/v1/status") {
-      response = json(statusPayload(), 200, requestId, origin);
-    } else if (url.pathname === "/") {
-      response = json({
-        name: "AI Business Agent API",
-        version: VERSION,
-        status: "foundation_only",
-        endpoints: { health: "/health", status: "/v1/status" }
-      }, 200, requestId, origin);
-    } else {
-      response = json({ ok: false, error: "Not found", request_id: requestId }, 404, requestId, origin);
-    }
+## Private admin modules
 
-    console.log(JSON.stringify({
-      event: "http_request",
-      request_id: requestId,
-      method: request.method,
-      path: url.pathname,
-      status: response.status
-    }));
-    return response;
-  }
-};
+1. Overview
+2. Access requests
+3. Authorized businesses (internal access records only)
+4. Website connections
+5. AI control center
+6. Automations
+7. Task center
+8. Usage and costs
+9. Audit and security
+10. Settings and internal roles
+
+## Stack
+
+- **Frontend:** Next.js App Router, React, TypeScript, statically exported to Cloudflare Pages
+- **Control-plane database and auth:** Supabase
+- **API, OAuth callbacks and webhooks:** Cloudflare Workers (`ai-business-agent-api` v0.2.0 foundation deployed; business API/OAuth/webhooks not activated yet)
+- **AI inference:** Provider/model intentionally not selected or connected yet
+- **Source control and deployment:** GitHub Actions → Cloudflare Pages
+
+## Current deployment
+
+- **Admin website:** https://ai-business-agent-admin.pages.dev
+- **GitHub repository:** https://github.com/shaziicreatives/ai-business-agent
+- **Supabase project:** `ai-business-agent` (Mumbai, Free tier)
+- **Cloudflare Pages project:** `ai-business-agent-admin`
+- GitHub Actions builds the static Next.js export and deploys the `out` directory to Cloudflare Pages on pushes to `main`.
+- The production deployment has been created successfully. A successful static deployment does not, by itself, prove that authentication and all backend flows have passed end-to-end tests.
+
+## Implemented
+
+- Private admin login UI using Supabase Auth.
+- Server-side admin verification through the `admin-verify` Edge Function. Only active `owner`, `admin`, or `operator` records are accepted.
+- Public business access request form, backed by `submit-access-request`. It validates fields, uses a honeypot, and does not accept passwords or API keys.
+- `admin-console` Edge Function verifies the bearer token and active admin role before reading or reviewing records.
+- Admin console reads overview counts, access requests, authorized businesses, platform connection metadata, tasks, automation definitions, usage records, and audit events.
+- Admin can approve or decline pending access requests. Approval creates an internal authorized-business record; it does not create a platform connection or grant platform permissions.
+- Supabase project is active and healthy. The private control-plane schema is applied. All relevant tables have RLS enabled, with no browser-role policies; private data access is through server-side service-role functions.
+- No demo businesses, requests, usage records, or fake activity have been seeded.
+
+## Not yet implemented or verified
+
+- Live end-to-end browser test of admin sign-in, authorization, dashboard data loading, and request submission/review.
+- OAuth/delegated platform connections, token storage/rotation, revocation, and webhooks.
+- AI provider/model selection, inference, agent orchestration, and tool execution.
+- Automation scheduling and execution runtime.
+- Real usage/cost metering and operational alerts.
+- Auth hardening: stronger password length/character requirements were saved. Supabase leaked-password protection remains unavailable on the Free plan (Pro and above); do not upgrade solely for this feature without explicit cost approval.
+- End-to-end browser test of admin login, gateway authorization, dashboard data loading, and public request submission.
+- OAuth callbacks, webhooks, and business integration runtime on Cloudflare Workers.
+
+## Security rules
+
+- Never collect store passwords in an ordinary form.
+- Use official OAuth / delegated authorization and least-privilege scopes wherever supported.
+- Keep access tokens and refresh tokens server-side only; never expose them to browser code.
+- Do not expose Supabase service-role keys in the frontend or commit secrets.
+- Public request submissions must pass through a protected server endpoint with validation and abuse controls; do not grant anonymous users direct read access to private admin tables.
+- Admin authorization must be enforced server-side, not only by hiding UI controls.
+- Admin-only Edge Functions restrict browser CORS access to `https://ai-business-agent-admin.pages.dev`; the public access-request endpoint remains public by design.
+- The `integration_secrets` table has no `anon` or `authenticated` table grants; secrets remain server-side only.
+- RLS must remain enabled on exposed tables. Current private tables intentionally have no browser-role policies and are accessed by server-side functions only.
+- High-impact business actions must remain approval-gated until a deliberate permissions policy is implemented and tested.
+
+## Cloudflare API foundation (2026-11-25)\n\n- Deployed `ai-business-agent-api` Worker v0.3.0 with `/health`, `/v1/status`, `/v1/admin/verify`, `/v1/admin/console`, and `/v1/access-requests` routes. Admin requests forward the user's bearer token to Supabase Edge Functions; service-role credentials never enter the Worker.\n- Restricted CORS to the production admin origin; added request IDs, no-store caching, basic security headers, and structured request logs.\n- Enabled Workers observability, invocation logs, and traces.\n- Worker reports `gateway_foundation`: the admin API gateway and public request proxy are implemented, while AI model, business integrations, and automation execution remain disabled until implemented and tested.\n- Worker source is versioned at `workers/api/worker.js`.\n\n## Security hardening log (2026-11-25)
+
+- Revoked all direct table privileges on `public.integration_secrets` from `anon` and `authenticated`; verified that no grants remain for those browser roles.
+- Restricted CORS on `admin-console` and `admin-verify` to the production admin origin. Deployed `admin-console` v5 and `admin-verify` v4.
+- Added 26 missing foreign-key indexes identified from PostgreSQL catalog checks and Supabase performance advisors.
+- Optimized all 14 workspace-related RLS policies to evaluate `auth.uid()` once per statement. While reviewing them, corrected the workspace visibility predicate to compare `workspace_members.workspace_id` with `workspaces.id`.
+- Re-ran Supabase advisors: the unindexed-foreign-key and RLS init-plan findings are now cleared. Remaining findings: leaked-password protection disabled (must be enabled in Supabase Auth settings). The 44 unused-index notices are expected at this stage because the tables are empty and the new indexes have not yet seen workload. Ten RLS-enabled/no-policy notices on private admin tables are intentional: browser roles have no direct grants/policies and the server functions enforce admin authorization.
+
+## Cost policy
+
+Prefer free tiers and no-cost services. Check current limits before relying on a free tier. Do not activate paid services, AI providers, or upgrades without the owner's explicit approval.
