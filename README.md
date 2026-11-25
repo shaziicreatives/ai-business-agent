@@ -82,7 +82,8 @@ Private, owner-operated control plane for an AI business agent. This is **not** 
 - Revoked all direct table privileges on `public.integration_secrets` from `anon` and `authenticated`; verified that no grants remain for those browser roles.
 - Restricted CORS on `admin-console` and `admin-verify` to the production admin origin. Deployed `admin-console` v5 and `admin-verify` v4.
 - Added 26 missing foreign-key indexes identified from PostgreSQL catalog checks and Supabase performance advisors.
-- Re-ran Supabase advisors. The unindexed-foreign-key finding is cleared. Remaining findings: leaked-password protection disabled (must be enabled in Supabase Auth settings); 14 RLS init-plan performance warnings on workspace-related policies. The 44 unused-index notices are expected at this stage because the tables are empty and the new indexes have not yet seen workload. Ten RLS-enabled/no-policy notices on private admin tables are intentional: browser roles have no direct grants/policies and the server functions enforce admin authorization.
+- Optimized all 14 workspace-related RLS policies to evaluate `auth.uid()` once per statement. While reviewing them, corrected the workspace visibility predicate to compare `workspace_members.workspace_id` with `workspaces.id`.
+- Re-ran Supabase advisors: the unindexed-foreign-key and RLS init-plan findings are now cleared. Remaining findings: leaked-password protection disabled (must be enabled in Supabase Auth settings). The 44 unused-index notices are expected at this stage because the tables are empty and the new indexes have not yet seen workload. Ten RLS-enabled/no-policy notices on private admin tables are intentional: browser roles have no direct grants/policies and the server functions enforce admin authorization.
 
 ## Cost policy
 
