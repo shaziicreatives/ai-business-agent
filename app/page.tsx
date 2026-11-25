@@ -25,6 +25,7 @@ const titles: Partial<Record<Section,string>> = { requests:"Access requests",bus
 export default function Home(){
  const [active,setActive]=useState<Section>("overview"),[email,setEmail]=useState(""),[password,setPassword]=useState("");
  const [adminEmail,setAdminEmail]=useState(""),[authError,setAuthError]=useState(""),[busy,setBusy]=useState(false),[checking,setChecking]=useState(true);
+ const [recoveryMode,setRecoveryMode]=useState(false),[recoverySent,setRecoverySent]=useState(false),[recoveryPassword,setRecoveryPassword]=useState(""),[recoveryConfirm,setRecoveryConfirm]=useState("");
  const [counts,setCounts]=useState(blankCounts),[rows,setRows]=useState<RowData[]>([]),[dataBusy,setDataBusy]=useState(false),[dataError,setDataError]=useState("");
  const [notes,setNotes]=useState<Record<string,string>>({}),[reviewing,setReviewing]=useState("");
 
@@ -60,12 +61,14 @@ export default function Home(){
  }
  useEffect(()=>{
    let mounted=true;
+   const {data:sub}=supabase.auth.onAuthStateChange((event,session)=>{
+     if(!mounted)return;
+     if(event==="PASSWORD_RECOVERY"){setRecoveryMode(true);setAuthError("");}
+     if(!session && event!=="PASSWORD_RECOVERY"){setAdminEmail("");setRows([]);setCounts(blankCounts);}
+   });
    supabase.auth.getSession().then(async({data})=>{
      if(data.session){try{await verify(data.session.access_token);}catch(e){if(mounted)setAuthError(e instanceof Error?e.message:"Access check failed.");}}
      if(mounted)setChecking(false);
-   });
-   const {data:sub}=supabase.auth.onAuthStateChange((_event,session)=>{
-     if(!session && mounted){setAdminEmail("");setRows([]);setCounts(blankCounts);}
    });
    return()=>{mounted=false;sub.subscription.unsubscribe();};
  },[]);
@@ -75,6 +78,18 @@ export default function Home(){
    e.preventDefault();setBusy(true);setAuthError("");
    try{const {data,error}=await supabase.auth.signInWithPassword({email,password});if(error||!data.session)throw new Error(error?.message||"Sign in failed.");await verify(data.session.access_token);}
    catch(e){setAuthError(e instanceof Error?e.message:"Unable to sign in.");}finally{setBusy(false);}
+ }
+ async function sendPasswordReset(){
+   setBusy(true);setAuthError("");setRecoverySent(false);
+   try{if(!email.trim())throw new Error("Enter your admin email first.");const {error}=await supabase.auth.resetPasswordForEmail(email.trim(),{redirectTo:window.location.origin+"/"});if(error)throw error;setRecoverySent(true);}
+   catch(e){setAuthError(e instanceof Error?e.message:"Could not send reset email.");}
+   finally{setBusy(false);}
+ }
+ async function saveNewPassword(e:FormEvent<HTMLFormElement>){
+   e.preventDefault();setBusy(true);setAuthError("");
+   try{if(recoveryPassword.length<8)throw new Error("Password must be at least 8 characters.");if(recoveryPassword!==recoveryConfirm)throw new Error("Passwords do not match.");const {error}=await supabase.auth.updateUser({password:recoveryPassword});if(error)throw error;await supabase.auth.signOut();setRecoveryMode(false);setRecoveryPassword("");setRecoveryConfirm("");setPassword("");setAuthError("Password updated. Sign in with your new password.");}
+   catch(e){setAuthError(e instanceof Error?e.message:"Could not update password.");}
+   finally{setBusy(false);}
  }
  async function review(id:string,decision:"approve"|"decline"){
    setReviewing(id);setDataError("");
@@ -105,7 +120,8 @@ export default function Home(){
  }
 
  if(checking)return <main className="auth-screen"><div className="auth-card"><img className="auth-logo" src="/creative-clan-logo.webp" alt="Creative Clan — Social Media & Marketing Agency" /><p>Checking private access…</p></div></main>;
- if(!adminEmail)return <main className="auth-screen"><form className="auth-card" onSubmit={login}><img className="auth-logo" src="/creative-clan-logo.webp" alt="Creative Clan — Social Media & Marketing Agency" /><p className="eyebrow">PRIVATE SUPER ADMIN</p><h1>Welcome back</h1><p className="auth-copy">Sign in with your authorized administrator account.</p><label>Email address<input type="email" autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)} required/></label><label>Password<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label>{authError&&<p className="auth-error">{authError}</p>}<button className="auth-submit" disabled={busy}>{busy?"Verifying access…":"Sign in securely"}</button><small>No public signup or client login. Only owner-authorized accounts can enter.</small></form></main>;
+ if(recoveryMode)return <main className="auth-screen"><form className="auth-card" onSubmit={saveNewPassword}><img className="auth-logo" src="/creative-clan-logo.webp" alt="Creative Clan" /><p className="eyebrow">ACCOUNT RECOVERY</p><h1>Set a new password</h1><p className="auth-copy">Choose a new password for your private admin account.</p><label>New password<input type="password" autoComplete="new-password" value={recoveryPassword} onChange={e=>setRecoveryPassword(e.target.value)} minLength={8} required/></label><label>Confirm new password<input type="password" autoComplete="new-password" value={recoveryConfirm} onChange={e=>setRecoveryConfirm(e.target.value)} minLength={8} required/></label>{authError&&<p className="auth-error">{authError}</p>}<button className="auth-submit" disabled={busy}>{busy?"Updating password…":"Save new password"}</button></form></main>;
+ if(!adminEmail)return <main className="auth-screen"><form className="auth-card" onSubmit={login}><img className="auth-logo" src="/creative-clan-logo.webp" alt="Creative Clan — Social Media & Marketing Agency" /><p className="eyebrow">PRIVATE SUPER ADMIN</p><h1>Welcome back</h1><p className="auth-copy">Sign in with your authorized administrator account.</p><label>Email address<input type="email" autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)} required/></label><label>Password<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label>{authError&&<p className="auth-error">{authError}</p>}<button className="auth-submit" disabled={busy}>{busy?"Verifying access…":"Sign in securely"}</button><button type="button" className="forgot-link" onClick={()=>void sendPasswordReset()} disabled={busy}>{busy?"Sending…":"Forgot password?"}</button>{recoverySent&&<p className="recovery-success">If this admin email is registered, a password reset link has been sent. Check inbox and spam.</p>}<small>No public signup or client login. Only owner-authorized accounts can enter.</small></form></main>;
 
  return <main className="admin-shell">
   <aside className="sidebar"><a className="brand" href="#" onClick={e=>{e.preventDefault();setActive("overview");}}><img className="sidebar-logo" src="/favicon.webp" alt="Creative Clan" /><span className="brand-name">Creative <b>Clan</b><small>PRIVATE ADMIN CONSOLE</small></span></a><div className="nav-caption">CONTROL CENTER</div><nav className="side-nav" aria-label="Admin navigation">
