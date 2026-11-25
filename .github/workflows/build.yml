@@ -19,7 +19,7 @@ jobs:
       - run: npm run build
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://emwvtsxeekjjrfutzlmf.supabase.co
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_s2jUvf1pjHiPkeFhTISzWA_B5_BgEbe
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVtd3Z0c3hlZWtqanJmdXR6bG1mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTU1NDQ4MTUsImV4cCI6MjExMTEyMDgxNX0.Qo6jgQoYowW0a3NDKLUMnTMZZsK4_JzNpfy-hILQetU
           NEXT_PUBLIC_API_BASE_URL: https://ai-business-agent.workers.dev
       - name: Upload static site artifact
         uses: actions/upload-artifact@v4
