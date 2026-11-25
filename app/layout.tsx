@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AI Business Agent",
-  description: "Your business operations, inventory and insights in one workspace."
+  title: "Creative Clan | Private Admin Console",
+  description: "Private super admin console for the Creative Clan AI Business Agent."
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
