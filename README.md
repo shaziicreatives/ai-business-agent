@@ -30,7 +30,7 @@ Private, owner-operated control plane for an AI business agent. This is **not** 
 
 - **Frontend:** Next.js App Router, React, TypeScript, statically exported to Cloudflare Pages
 - **Control-plane database and auth:** Supabase
-- **API, OAuth callbacks and webhooks:** Cloudflare Workers (`ai-business-agent-api` v0.2.0 foundation deployed; business API/OAuth/webhooks not activated yet)
+- **API, OAuth callbacks and webhooks:** Cloudflare Workers (`ai-business-agent-api` v0.3.0 API gateway deployed; OAuth/webhooks not activated yet)
 - **AI inference:** Provider/model intentionally not selected or connected yet
 - **Source control and deployment:** GitHub Actions → Cloudflare Pages
 
@@ -46,9 +46,9 @@ Private, owner-operated control plane for an AI business agent. This is **not** 
 ## Implemented
 
 - Private admin login UI using Supabase Auth.
-- Server-side admin verification through the `admin-verify` Edge Function. Only active `owner`, `admin`, or `operator` records are accepted.
-- Public business access request form, backed by `submit-access-request`. It validates fields, uses a honeypot, and does not accept passwords or API keys.
-- `admin-console` Edge Function verifies the bearer token and active admin role before reading or reviewing records.
+- Server-side admin verification through the Cloudflare Worker gateway and `admin-verify` Edge Function. Only active `owner`, `admin`, or `operator` records are accepted.
+- Public business access request form, proxied by the Cloudflare Worker to `submit-access-request`. It validates fields, uses a honeypot, and does not accept passwords or API keys.
+- Admin console requests pass through Cloudflare Worker to the `admin-console` Edge Function, which verifies the bearer token and active admin role before reading or reviewing records.
 - Admin console reads overview counts, access requests, authorized businesses, platform connection metadata, tasks, automation definitions, usage records, and audit events.
 - Admin can approve or decline pending access requests. Approval creates an internal authorized-business record; it does not create a platform connection or grant platform permissions.
 - Supabase project is active and healthy. The private control-plane schema is applied. All relevant tables have RLS enabled, with no browser-role policies; private data access is through server-side service-role functions.
@@ -61,8 +61,8 @@ Private, owner-operated control plane for an AI business agent. This is **not** 
 - AI provider/model selection, inference, agent orchestration, and tool execution.
 - Automation scheduling and execution runtime.
 - Real usage/cost metering and operational alerts.
-- Auth hardening: stronger password length/character requirements were saved. Supabase leaked-password protection remains unavailable on the Free plan (Pro and above); do not upgrade solely for this feature without explicit cost approval.
-- End-to-end browser test of admin login, gateway authorization, dashboard data loading, and public request submission.
+- Auth hardening: stronger password length/character requirements were saved. Supabase leaked-password protection is a Pro-and-above feature and remains unavailable on this Free project; no upgrade is planned without explicit cost approval.
+- Owner browser test of admin login, gateway authorization, dashboard data loading, and public request submission.
 - OAuth callbacks, webhooks, and business integration runtime on Cloudflare Workers.
 
 ## Security rules
@@ -78,13 +78,21 @@ Private, owner-operated control plane for an AI business agent. This is **not** 
 - RLS must remain enabled on exposed tables. Current private tables intentionally have no browser-role policies and are accessed by server-side functions only.
 - High-impact business actions must remain approval-gated until a deliberate permissions policy is implemented and tested.
 
-## Cloudflare API foundation (2026-11-25)\n\n- Deployed `ai-business-agent-api` Worker v0.3.0 with `/health`, `/v1/status`, `/v1/admin/verify`, `/v1/admin/console`, and `/v1/access-requests` routes. Admin requests forward the user's bearer token to Supabase Edge Functions; service-role credentials never enter the Worker.\n- Restricted CORS to the production admin origin; added request IDs, no-store caching, basic security headers, and structured request logs.\n- Enabled Workers observability, invocation logs, and traces.\n- Worker reports `gateway_foundation`: the admin API gateway and public request proxy are implemented, while AI model, business integrations, and automation execution remain disabled until implemented and tested.\n- Worker source is versioned at `workers/api/worker.js`.\n\n## Security hardening log (2026-11-25)
+## Cloudflare API foundation (2026-11-25)
+
+- Deployed `ai-business-agent-api` Worker v0.3.0 with `/health`, `/v1/status`, `/v1/admin/verify`, `/v1/admin/console`, and `/v1/access-requests` routes. Admin requests forward the user's bearer token to Supabase Edge Functions; service-role credentials never enter the Worker.
+- Restricted CORS to the production admin origin; added request IDs, no-store caching, basic security headers, and structured request logs.
+- Enabled Workers observability, invocation logs, and traces.
+- Worker reports `gateway_foundation`: the admin API gateway and public request proxy are implemented, while AI model, business integrations, and automation execution remain disabled until implemented and tested.
+- Worker source is versioned at `workers/api/worker.js`.
+
+## Security hardening log (2026-11-25)
 
 - Revoked all direct table privileges on `public.integration_secrets` from `anon` and `authenticated`; verified that no grants remain for those browser roles.
 - Restricted CORS on `admin-console` and `admin-verify` to the production admin origin. Deployed `admin-console` v5 and `admin-verify` v4.
 - Added 26 missing foreign-key indexes identified from PostgreSQL catalog checks and Supabase performance advisors.
 - Optimized all 14 workspace-related RLS policies to evaluate `auth.uid()` once per statement. While reviewing them, corrected the workspace visibility predicate to compare `workspace_members.workspace_id` with `workspaces.id`.
-- Re-ran Supabase advisors: the unindexed-foreign-key and RLS init-plan findings are now cleared. Remaining findings: leaked-password protection disabled (must be enabled in Supabase Auth settings). The 44 unused-index notices are expected at this stage because the tables are empty and the new indexes have not yet seen workload. Ten RLS-enabled/no-policy notices on private admin tables are intentional: browser roles have no direct grants/policies and the server functions enforce admin authorization.
+- Re-ran Supabase advisors: the unindexed-foreign-key and RLS init-plan findings are now cleared. Remaining warning: leaked-password protection is unavailable on the Free plan. Stronger password length and character requirements have been saved. The 44 unused-index notices are expected at this stage because the tables are empty and the new indexes have not yet seen workload. Ten RLS-enabled/no-policy notices on private admin tables are intentional: browser roles have no direct grants/policies and the server functions enforce admin authorization.
 
 ## Cost policy
 
