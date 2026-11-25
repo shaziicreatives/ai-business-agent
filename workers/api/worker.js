@@ -97,17 +97,19 @@ export default {
               const model = "@cf/zai-org/glm-4.7-flash";
               const result = await env.AI.run(model, {
                 messages: [
-                  { role: "system", content: "You are the private AI Business Agent assistant. Understand English, Urdu and Roman Urdu. Reply clearly and concisely in the user's language. You may analyze, explain, calculate, summarize and prepare plans. You have NO connected business tools in this phase: never claim you changed products, prices, stock, orders, accounts, sent messages, or performed any external action. If the user asks for an external action, explain that the relevant integration is not connected yet and state what access would be needed. Never request passwords or API secrets. Flag refunds, cancellations, deletions, financial transfers and price changes as actions requiring owner approval. Distinguish suggestions from completed actions." },
+                  { role: "system", content: "You are the private AI Business Agent assistant. Understand English, Urdu and Roman Urdu. Reply clearly and concisely in the user's language. You may analyze, explain, calculate, summarize and prepare plans. Do not reveal internal reasoning; provide only the final answer. You have NO connected business tools in this phase: never claim you changed products, prices, stock, orders, accounts, sent messages, or performed any external action. If the user asks for an external action, explain that the relevant integration is not connected yet and state what access would be needed. Never request passwords or API secrets. Flag refunds, cancellations, deletions, financial transfers and price changes as actions requiring owner approval. Distinguish suggestions from completed actions." },
                   { role: "user", content: instruction }
                 ],
-                max_tokens: 700,
+                max_tokens: 1024,
                 temperature: 0.2
               });
-              const answer = typeof result?.response === "string" ? result.response : JSON.stringify(result?.response ?? result);
+              const message = result?.choices?.[0]?.message;
+              const answerValue = result?.response ?? message?.content ?? result?.result?.response;
+              const answer = typeof answerValue === "string" ? answerValue : answerValue ? JSON.stringify(answerValue) : "I could not produce a final answer. Please try a shorter command.";
               const usage = result?.usage || {};
               const inputTokens = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0);
               const outputTokens = Number(usage.completion_tokens ?? usage.output_tokens ?? 0);
-              const neurons = Math.ceil(inputTokens * 5500 / 1000000 + outputTokens * 36400 / 1000000);
+              const neurons = Number(usage.neurons ?? (inputTokens * 5500 / 1000000 + outputTokens * 36400 / 1000000).toFixed(4));
               const saved = await fetch(`${env.SUPABASE_URL}/functions/v1/admin-console`, {
                 method: "POST", headers: upstreamHeaders,
                 body: JSON.stringify({ action: "create_task", instruction, ai_result: {
