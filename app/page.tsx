@@ -186,6 +186,7 @@ export default function Home(){
        </div>
        <form className="panel integration-form" onSubmit={startConnectionSetup}>
         <div className="panel-heading"><div><span className="panel-kicker">NEW CONNECTION</span><h2>{setupPlatform==="shopify"?"Connect Shopify":setupPlatform==="woocommerce"?"Connect WooCommerce":setupPlatform==="hostinger"?"Connect Hostinger website":"Connect custom website"}</h2><p>Setup is saved as pending until the platform's real authorization is completed.</p></div><span className="pending-label">AUTHORIZATION REQUIRED</span></div>
+        {businessOptions.length===0&&<p className="integration-no-business">No approved business is available yet. Open Access Requests, approve a business, then return here to connect its website.</p>}
         <div className="integration-fields">
          <label>Approved business<select value={setupBusiness} onChange={e=>setSetupBusiness(e.target.value)} required><option value="">Select a business</option>{businessOptions.map(b=><option key={b.id} value={b.id}>{b.business_name} · {b.contact_email||"No email"}</option>)}</select></label>
          <label>Website / store domain<input value={setupDomain} onChange={e=>setSetupDomain(e.target.value)} placeholder={setupPlatform==="shopify"?"your-store.myshopify.com":"https://example.com"} required/></label>
