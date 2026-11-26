@@ -9,11 +9,9 @@ const sections = [
   { id:"businesses",label:"Businesses",icon:"♙",group:"Workspace" },
   { id:"requests",label:"Access requests",icon:"↗",group:"Workspace" },
   { id:"connections",label:"Website connections",icon:"⌁",group:"Workspace" },
-  { id:"ai",label:"AI control center",icon:"✳",group:"Workspace" },
   { id:"automations",label:"Automations",icon:"ϟ",group:"Workspace" },
   { id:"tasks",label:"Task center",icon:"☑",group:"Workspace" },
   { id:"payments",label:"Payments & invoices",icon:"▤",group:"Business Operations" },
-  { id:"usage",label:"Usage & costs",icon:"▥",group:"Business Operations" },
   { id:"support",label:"Support & onboarding",icon:"☏",group:"Business Operations" },
   { id:"team",label:"Team & roles",icon:"♧",group:"Administration" },
   { id:"notifications",label:"Notifications",icon:"♧",group:"Administration" },
@@ -24,16 +22,14 @@ type Section = typeof sections[number]["id"];
 type RowData = Record<string, any>;
 const blankCounts = { pending_requests:0,businesses:0,connections:0,tasks:0 };
 const placeholders: Partial<Record<Section,{title:string,description:string}>> = {
-  ai:{title:"AI control center",description:"Configure AI providers, agent permissions and operating modes when you approve activation."},
   automations:{title:"Automations",description:"Design and review event-driven workflows. Execution remains paused until explicitly enabled."},
   payments:{title:"Payments & invoices",description:"Private financial records, platform invoices and payment reconciliation. No demo figures are displayed."},
   support:{title:"Support & onboarding",description:"Track business onboarding, support requests and setup progress."},
   team:{title:"Team & roles",description:"Review internal team access. Role changes remain restricted to secure owner administration."},
   notifications:{title:"Notifications",description:"Important access, security and system alerts will appear here."},
-  usage:{title:"Usage & costs",description:"Track recorded model usage, platform usage and infrastructure costs."},
   settings:{title:"Settings",description:"Manage internal admin access and system preferences."},
 };
-const titles: Partial<Record<Section,string>> = { requests:"Access requests",businesses:"Businesses",connections:"Website connections",tasks:"Task center",security:"Security & audit logs",automations:"Automations",usage:"Usage & costs" };
+const titles: Partial<Record<Section,string>> = { requests:"Access requests",businesses:"Businesses",connections:"Website connections",tasks:"Task history",security:"Security & audit logs",automations:"Automations" };
 
 export default function Home(){
  const [active,setActive]=useState<Section>("overview"),[email,setEmail]=useState(""),[password,setPassword]=useState("");
@@ -41,7 +37,6 @@ export default function Home(){
  const [recoveryMode,setRecoveryMode]=useState(false),[recoverySent,setRecoverySent]=useState(false),[recoveryPassword,setRecoveryPassword]=useState(""),[recoveryConfirm,setRecoveryConfirm]=useState("");
  const [counts,setCounts]=useState(blankCounts),[rows,setRows]=useState<RowData[]>([]),[dataBusy,setDataBusy]=useState(false),[dataError,setDataError]=useState("");
  const [notes,setNotes]=useState<Record<string,string>>({}),[reviewing,setReviewing]=useState("");
- const [taskInstruction,setTaskInstruction]=useState(""),[taskSubmitting,setTaskSubmitting]=useState(false),[taskMessage,setTaskMessage]=useState(""),[taskResult,setTaskResult]=useState("");
 
  const action=useCallback(async(name:string,extra:RowData={})=>{
    const {data:{session},error:sessionError}=await supabase.auth.getSession();
@@ -59,7 +54,7 @@ export default function Home(){
    try{const d=await action("overview");setCounts(d.counts);}catch(e){setDataError(e instanceof Error?e.message:"Overview failed.");}
  },[action]);
  const loadSection=useCallback(async(section:Section)=>{
-   const map:Partial<Record<Section,string>>={requests:"requests",businesses:"businesses",connections:"connections",tasks:"tasks",security:"audit",automations:"automations",usage:"usage"};
+   const map:Partial<Record<Section,string>>={requests:"requests",businesses:"businesses",connections:"connections",tasks:"tasks",security:"audit",automations:"automations"};
    if(!map[section]){setRows([]);return;}
    setDataBusy(true);setDataError("");
    try{const d=await action(map[section]!);setRows(d.data||[]);}catch(e){setRows([]);setDataError(e instanceof Error?e.message:"Could not load records.");}
@@ -105,25 +100,6 @@ export default function Home(){
    catch(e){setAuthError(e instanceof Error?e.message:"Could not update password.");}
    finally{setBusy(false);}
  }
- async function queueTask(e:FormEvent<HTMLFormElement>){
-   e.preventDefault();setTaskSubmitting(true);setTaskMessage("");setTaskResult("");setDataError("");
-   try{
-     const instruction=taskInstruction.trim();if(!instruction)throw new Error("Write a command first.");
-     const {data:{session},error:sessionError}=await supabase.auth.getSession();
-     if(sessionError||!session)throw new Error("Your admin session has expired. Please sign in again.");
-     const response=await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/v1/agent/command`,{
-       method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`},
-       body:JSON.stringify({instruction})
-     });
-     const result=await response.json().catch(()=>({}));
-     if(!response.ok||!result?.ok)throw new Error(result?.error||"AI command failed.");
-     setTaskInstruction("");setTaskResult(result.data?.response||"No response returned.");
-     const usage=result.data?.usage||{};
-     setTaskMessage(usage.available?`Saved • ${usage.input_tokens} input tokens • ${usage.output_tokens} output tokens • ~${usage.neurons_estimate} Neurons`:"Saved • Token usage was not returned by the model.");
-     await Promise.all([loadSection("tasks"),loadOverview(),loadSection("usage")]);
-   }catch(e){setDataError(e instanceof Error?e.message:"Could not process command.");}
-   finally{setTaskSubmitting(false);}
- }
  async function review(id:string,decision:"approve"|"decline"){
    setReviewing(id);setDataError("");
    try{await action("review_request",{id,decision,notes:notes[id]||""});await Promise.all([loadSection("requests"),loadOverview()]);}
@@ -146,7 +122,7 @@ export default function Home(){
      {row.review_notes&&<p className="record-message">Review note: {row.review_notes}</p>}
     </article>)}
    </div></section>;
-   const headers=active==="businesses"?["Business","Platform","Website","Status","Approved"]:active==="connections"?["Platform","External account","Status","Scopes","Connected"]:active==="tasks"?["Task type","Status","Approval required","AI response","Created"]:active==="automations"?["Automation","Trigger","Enabled","Approval required","Created"]:active==="usage"?["Provider","Model","Input tokens","Output tokens","Neurons","Estimated cost","Recorded"]:["Action","Resource","Outcome","Created"];
+   const headers=active==="businesses"?["Business","Platform","Website","Status","Approved"]:active==="connections"?["Platform","External account","Status","Scopes","Connected"]:active==="tasks"?["Task type","Status","Approval required","Result summary","Created"]:active==="automations"?["Automation","Trigger","Enabled","Approval required","Created"]:active==="usage"?["Provider","Model","Input tokens","Output tokens","Neurons","Estimated cost","Recorded"]:["Action","Resource","Outcome","Created"];
    return <section className="panel data-panel"><div className="panel-heading"><div><h2>{rows.length} records</h2><p>Latest 100 records</p></div><button className="small-action" onClick={()=>void loadSection(active)}>Refresh</button></div><div className="table-wrap"><table className="records-table"><thead><tr>{headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>
    {rows.map(row=><tr key={row.id}>{(active==="businesses"?[row.business_name,row.platform,row.website_url,row.status,date(row.approved_at)]:active==="connections"?[row.platform,row.external_account_ref,row.connection_status,(row.granted_scopes||[]).join(", "),date(row.connected_at)]:active==="tasks"?[row.task_type,row.status,row.requires_approval?"Yes":"No",row.output?.response?String(row.output.response).slice(0,100):"—",date(row.created_at)]:active==="automations"?[row.name,row.trigger_type,row.is_enabled?"Yes":"No",row.requires_approval?"Yes":"No",date(row.created_at)]:active==="usage"?[row.provider,row.model,row.input_units,row.output_units,row.metadata?.neurons_estimate??"—",fmt(row.estimated_cost)+" "+fmt(row.currency),date(row.recorded_at)]:[row.action,row.resource_type,row.outcome,date(row.created_at)]).map((v,i)=><td key={i}>{fmt(v)}</td>)}</tr>)}
    </tbody></table></div></section>;
@@ -169,9 +145,9 @@ export default function Home(){
      <section className="panel activity-panel"><div className="panel-heading"><div><span className="panel-kicker">SYSTEM STATUS</span><h2>Control plane health</h2><p>Current configuration state</p></div><span className="health-orb">✓</span></div><div className="health-list"><div><span className="health-symbol green">✓</span><span><b>Admin authentication</b><small>Private owner session verified</small></span><em>ACTIVE</em></div><div><span className="health-symbol green">✓</span><span><b>Secure backend</b><small>Protected admin API configured</small></span><em>CONNECTED</em></div><div><span className="health-symbol blue">◇</span><span><b>External integrations</b><small>Waiting for your authorization</small></span><em>PAUSED</em></div><div><span className="health-symbol amber">ϟ</span><span><b>AI runtime</b><small>No model or paid provider enabled</small></span><em>NOT SET</em></div></div><div className="architecture-mini"><b>Platform architecture</b><div><span>Client platform</span><i>↔</i><span>AI agent</span><i>↔</i><span>Admin</span></div><small>Client data stays on its original platform · Permission-based access · Admin approvals</small></div></section></div>
      <div className="bottom-dashboard-grid"><section className="panel quick-panel"><div className="panel-heading"><div><span className="panel-kicker">QUICK ACCESS</span><h2>Pending access requests</h2><p>Review incoming business applications</p></div><button className="text-action" onClick={()=>setActive("requests")}>View all →</button></div><div className="quick-empty"><span>↗</span><div><b>{counts.pending_requests===0?"You're all caught up.":`${counts.pending_requests} request(s) need review.`}</b><small>{counts.pending_requests===0?"No pending requests are currently recorded.":"Open access requests to review and decide."}</small></div></div></section><section className="panel principle-panel"><span className="principle-icon">◇</span><div><span className="panel-kicker">CORE PRINCIPLE</span><h2>Your clients keep their own platforms.</h2><p>AI works through approved connections. Their Shopify or website remains the source of truth — no duplicate inventory system.</p></div></section></div>
     </>:<>
-     <div className="page-heading"><div><p className="eyebrow">{live?"LIVE ADMIN DATA":"AGENT CONFIGURATION"}</p><h1>{titles[active]||placeholders[active]?.title}</h1><p className="subheading">{active==="requests"?"Review business requests and approve or decline access.":active==="businesses"?"Internal records of approved businesses. No client portal or login is created.":active==="connections"?"Officially authorized platform connections and their status.":active==="tasks"?"Agent execution history and task states.":active==="security"?"Internal administrator actions and audit trail.":active==="automations"?"Review automation definitions stored in the control plane. Execution remains disabled until the agent runtime is configured.":active==="usage"?"Review recorded model and platform usage with estimated costs.":placeholders[active]?.description}</p></div><span className="date-label">PRIVATE ADMIN AREA</span></div>
+     <div className="page-heading"><div><p className="eyebrow">{live?"LIVE ADMIN DATA":"AGENT CONFIGURATION"}</p><h1>{titles[active]||placeholders[active]?.title}</h1><p className="subheading">{active==="requests"?"Review business requests and approve or decline access.":active==="businesses"?"Internal records of approved businesses. No client portal or login is created.":active==="connections"?"Officially authorized platform connections and their status.":active==="tasks"?"Review internal task history and execution states.":active==="security"?"Internal administrator actions and audit trail.":active==="automations"?"Review automation definitions stored in the control plane. Execution remains disabled until the agent runtime is configured.":placeholders[active]?.description}</p></div><span className="date-label">PRIVATE ADMIN AREA</span></div>
      {dataError&&<p className="data-error">{dataError}</p>}
-     {active==="tasks"?<><section className="panel data-panel"><div className="panel-heading"><div><h2>Give your agent a command</h2><p>Ask in English or Roman Urdu. AI can understand, analyze and reply; business apps are not connected yet.</p></div><span className="status-pill">AI READY</span></div><form onSubmit={queueTask} className="review-controls" style={{alignItems:"stretch"}}><textarea value={taskInstruction} onChange={e=>setTaskInstruction(e.target.value)} maxLength={4000} rows={4} placeholder="Example: Review sales summary and tell me the top-selling products." required style={{flex:1,minWidth:260,resize:"vertical",padding:12,borderRadius:10,border:"1px solid #d7deeb",font:"inherit"}}/><button type="submit" disabled={taskSubmitting}>{taskSubmitting?"Saving…":"＋ Queue command"}</button></form>{taskMessage&&<p className="privacy-note">{taskMessage}</p>}{taskResult&&<div className="result-panel" style={{marginTop:16,padding:16,borderRadius:12,background:"#f4f7fc",whiteSpace:"pre-wrap",lineHeight:1.6}}>{taskResult}</div>}</section>{renderRows()}</>:live?renderRows():active==="ai"?<section className="panel data-panel"><div className="panel-heading"><div><h2>Agent runtime status</h2><p>Configuration is intentionally paused while integrations are on hold.</p></div><span className="status-pill pending">NOT CONFIGURED</span></div><div className="record-details"><span><b>Model provider:</b> Not selected</span><span><b>Agent orchestration:</b> Not deployed</span><span><b>Tool permissions:</b> Disabled</span><span><b>External integrations:</b> Paused by request</span></div><p className="privacy-note">No paid AI service or model has been enabled. We will choose and configure the model only when you are ready.</p></section>:active==="settings"?<section className="panel data-panel"><div className="panel-heading"><div><h2>Workspace settings</h2><p>Private control-plane environment</p></div><span className="status-pill active">SECURE</span></div><div className="record-details"><span><b>Admin access:</b> Supabase Auth + private role check</span><span><b>Database region:</b> Mumbai (ap-south-1)</span><span><b>Client portal:</b> Not enabled</span><span><b>External integrations:</b> Paused</span><span><b>Production website:</b> Not connected or modified</span></div><p className="privacy-note">Admin roles are managed directly in the protected private_admins table. No public role-management controls are exposed.</p></section>:<section className="empty-panel"><div className="empty-symbol">{current.icon}</div><h2>No configuration yet</h2><p>{placeholders[active]?.description} No demo records are shown.</p></section>}
+     {active==="tasks"?renderRows():live?renderRows():active==="settings"?<section className="panel data-panel"><div className="panel-heading"><div><h2>Workspace settings</h2><p>Private control-plane environment</p></div><span className="status-pill active">SECURE</span></div><div className="record-details"><span><b>Admin access:</b> Supabase Auth + private role check</span><span><b>Database region:</b> Mumbai (ap-south-1)</span><span><b>Client portal:</b> Not enabled</span><span><b>External integrations:</b> Paused</span><span><b>Production website:</b> Not connected or modified</span></div><p className="privacy-note">Admin roles are managed directly in the protected private_admins table. No public role-management controls are exposed.</p></section>:<section className="empty-panel"><div className="empty-symbol">{current.icon}</div><h2>No configuration yet</h2><p>{placeholders[active]?.description} No demo records are shown.</p></section>}
      {active==="businesses"&&<p className="privacy-note">Clients do not receive accounts on Creative Clan. Records are visible only to authorized internal administrators.</p>}
      {active==="connections"&&<p className="privacy-note">Authorization must be granted by the business owner through the platform's official consent flow. Never ask clients to send passwords.</p>}
     </>}
