@@ -11,6 +11,7 @@ const sections = [
   { id:"connections",label:"Website connections",icon:"⌁",group:"Workspace" },
   { id:"automations",label:"Automations",icon:"ϟ",group:"Workspace" },
   { id:"tasks",label:"Task center",icon:"☑",group:"Workspace" },
+  { id:"credits",label:"Usage & Credits",icon:"◉",group:"Business Operations" },
   { id:"payments",label:"Payments & invoices",icon:"▤",group:"Business Operations" },
   { id:"support",label:"Support & onboarding",icon:"☏",group:"Business Operations" },
   { id:"team",label:"Team & roles",icon:"♧",group:"Administration" },
@@ -29,7 +30,7 @@ const placeholders: Partial<Record<Section,{title:string,description:string}>> =
   notifications:{title:"Notifications",description:"Important access, security and system alerts will appear here."},
   settings:{title:"Settings",description:"Manage internal admin access and system preferences."},
 };
-const titles: Partial<Record<Section,string>> = { requests:"Access requests",businesses:"Businesses",connections:"Website connections",tasks:"Task history",security:"Security & audit logs",automations:"Automations" };
+const titles: Partial<Record<Section,string>> = { credits:"Usage & Credits",requests:"Access requests",businesses:"Businesses",connections:"Website connections",tasks:"Task history",security:"Security & audit logs",automations:"Automations" };
 
 export default function Home(){
  const [active,setActive]=useState<Section>("overview"),[email,setEmail]=useState(""),[password,setPassword]=useState("");
@@ -37,6 +38,7 @@ export default function Home(){
  const [recoveryMode,setRecoveryMode]=useState(false),[recoverySent,setRecoverySent]=useState(false),[recoveryPassword,setRecoveryPassword]=useState(""),[recoveryConfirm,setRecoveryConfirm]=useState("");
  const [counts,setCounts]=useState(blankCounts),[rows,setRows]=useState<RowData[]>([]),[dataBusy,setDataBusy]=useState(false),[dataError,setDataError]=useState("");
  const [notes,setNotes]=useState<Record<string,string>>({}),[reviewing,setReviewing]=useState("");
+ const [creditInputs,setCreditInputs]=useState<Record<string,{quota:string,amount:string,reason:string}>>({}),[creditBusy,setCreditBusy]=useState("");
  const [previewOpen,setPreviewOpen]=useState(false);
 
  const action=useCallback(async(name:string,extra:RowData={})=>{
@@ -55,7 +57,7 @@ export default function Home(){
    try{const d=await action("overview");setCounts(d.counts);}catch(e){setDataError(e instanceof Error?e.message:"Overview failed.");}
  },[action]);
  const loadSection=useCallback(async(section:Section)=>{
-   const map:Partial<Record<Section,string>>={requests:"requests",businesses:"businesses",connections:"connections",tasks:"tasks",security:"audit",automations:"automations"};
+   const map:Partial<Record<Section,string>>={requests:"requests",businesses:"businesses",connections:"connections",tasks:"tasks",security:"audit",automations:"automations",credits:"credits"};
    if(!map[section]){setRows([]);return;}
    setDataBusy(true);setDataError("");
    try{const d=await action(map[section]!);setRows(d.data||[]);}catch(e){setRows([]);setDataError(e instanceof Error?e.message:"Could not load records.");}
@@ -114,6 +116,16 @@ export default function Home(){
  function renderRows(){
    if(dataBusy)return <section className="empty-panel"><h2>Loading records…</h2></section>;
    if(rows.length===0)return <section className="panel data-panel"><div className="empty-inline">No records yet.</div></section>;
+   if(active==="credits")return <section className="panel data-panel"><div className="panel-heading"><div><h2>Client AI credit accounts</h2><p>Internal credits are separate from Cloudflare Neurons and provider usage.</p></div><button className="small-action" onClick={()=>void loadSection("credits")}>Refresh</button></div><div className="credit-list">
+    {rows.map(row=>{const business=row.business||{};const values=creditInputs[row.business_id]||{quota:String(row.monthly_quota??0),amount:"",reason:""};return <article className="credit-card" key={row.business_id}>
+     <div className="credit-card-top"><div><h3>{fmt(business.business_name)}</h3><p>{fmt(business.owner_name)} · {fmt(business.platform)} · {fmt(business.contact_email)}</p></div><span className={"status-pill "+(row.is_blocked?"revoked":"active")}>{row.is_blocked?"BLOCKED":"ACTIVE"}</span></div>
+     <div className="credit-metrics"><div><small>Available</small><b>{Number(row.available_credits||0).toLocaleString()}</b></div><div><small>Used this period</small><b>{Number(row.used_this_period||0).toLocaleString()}</b></div><div><small>Monthly quota</small><b>{Number(row.monthly_quota||0).toLocaleString()}</b></div><div><small>Low alert at</small><b>{Number(row.low_balance_threshold||0).toLocaleString()}</b></div></div>
+     {row.block_reason&&<p className="credit-warning">{row.block_reason}</p>}
+     <div className="credit-controls"><label>Monthly quota<input type="number" min="0" value={values.quota} onChange={e=>setCreditInputs(old=>({...old,[row.business_id]:{...values,quota:e.target.value}}))}/></label><button disabled={creditBusy===row.business_id} onClick={()=>void (async()=>{setCreditBusy(row.business_id);try{await action("set_credit_quota",{business_id:row.business_id,monthly_quota:Number(values.quota),low_balance_threshold:Math.floor(Number(values.quota)*0.2)});await loadSection("credits");}catch(e){setDataError(e instanceof Error?e.message:"Could not save quota.");}finally{setCreditBusy("");}})()}>Save quota</button></div>
+     <div className="credit-controls"><label>Top-up credits<input type="number" min="1" value={values.amount} placeholder="e.g. 5000" onChange={e=>setCreditInputs(old=>({...old,[row.business_id]:{...values,amount:e.target.value}}))}/></label><label>Reason<input value={values.reason} placeholder="Monthly top-up" onChange={e=>setCreditInputs(old=>({...old,[row.business_id]:{...values,reason:e.target.value}}))}/></label><button className="primary-action" disabled={creditBusy===row.business_id||!values.amount||!values.reason.trim()} onClick={()=>void (async()=>{setCreditBusy(row.business_id);setDataError("");try{await action("top_up_credits",{business_id:row.business_id,amount:Number(values.amount),reason:values.reason,idempotency_key:crypto.randomUUID()});setCreditInputs(old=>({...old,[row.business_id]:{...values,amount:"",reason:""}}));await loadSection("credits");}catch(e){setDataError(e instanceof Error?e.message:"Top-up failed.");}finally{setCreditBusy("");}})()}>Add credits</button></div>
+    </article>})}
+    {rows.length===0&&<div className="empty-inline">No client credit accounts yet. Set up an account when a business is approved.</div>}
+   </div></section>;
    if(active==="requests")return <section className="panel data-panel"><div className="panel-heading"><div><h2>{rows.length} requests</h2><p>Latest 100 submissions</p></div><button className="small-action" onClick={()=>void loadSection(active)}>Refresh</button></div><div className="record-list">
     {rows.map(row=><article className="request-record" key={row.id}>
      <div className="record-top"><div><h3>{fmt(row.business_name)}</h3><p>{fmt(row.owner_name)} · {fmt(row.contact_email)}</p></div><span className={"status-pill "+row.status}>{row.status}</span></div>
