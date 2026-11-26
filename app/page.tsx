@@ -41,6 +41,8 @@ export default function Home(){
  const [creditInputs,setCreditInputs]=useState<Record<string,{quota:string,amount:string,reason:string}>>({}),[creditBusy,setCreditBusy]=useState("");
  const [creditHistory,setCreditHistory]=useState<Record<string,RowData[]>>({});
  const [previewOpen,setPreviewOpen]=useState(false);
+ const [businessOptions,setBusinessOptions]=useState<RowData[]>([]);
+ const [setupPlatform,setSetupPlatform]=useState("shopify"),[setupDomain,setSetupDomain]=useState(""),[setupBusiness,setSetupBusiness]=useState(""),[setupMethod,setSetupMethod]=useState("oauth"),[setupNotes,setSetupNotes]=useState(""),[setupBusy,setSetupBusy]=useState(false);
 
  const action=useCallback(async(name:string,extra:RowData={})=>{
    const {data:{session},error:sessionError}=await supabase.auth.getSession();
@@ -61,9 +63,19 @@ export default function Home(){
    const map:Partial<Record<Section,string>>={requests:"requests",businesses:"businesses",connections:"connections",tasks:"tasks",security:"audit",automations:"automations",credits:"credits"};
    if(!map[section]){setRows([]);return;}
    setDataBusy(true);setDataError("");
-   try{const d=await action(map[section]!);setRows(d.data||[]);}catch(e){setRows([]);setDataError(e instanceof Error?e.message:"Could not load records.");}
+   try{const d=await action(map[section]!);setRows(d.data||[]);if(section==="connections"){const b=await action("businesses");const approved=(b.data||[]).filter((x:RowData)=>x.status==="active");setBusinessOptions(approved);if(!setupBusiness&&approved[0])setSetupBusiness(approved[0].id);}}catch(e){setRows([]);setDataError(e instanceof Error?e.message:"Could not load records.");}
    finally{setDataBusy(false);}
- },[action]);
+ },[action,setupBusiness]);
+ async function startConnectionSetup(e:FormEvent<HTMLFormElement>){
+   e.preventDefault();setSetupBusy(true);setDataError("");
+   try{await action("start_connection_setup",{business_id:setupBusiness,platform:setupPlatform,domain:setupDomain,method:setupMethod,notes:setupNotes});setSetupDomain("");setSetupNotes("");await loadSection("connections");await loadOverview();}
+   catch(e){setDataError(e instanceof Error?e.message:"Could not save integration setup.");}
+   finally{setSetupBusy(false);}
+ }
+ async function cancelConnectionSetup(id:string){
+   setDataError("");try{await action("cancel_connection_setup",{id});await loadSection("connections");await loadOverview();}
+   catch(e){setDataError(e instanceof Error?e.message:"Could not cancel setup.");}
+ }
  async function verify(token:string){
    const response=await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/v1/admin/verify`,{
      method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+token},body:"{}"
@@ -164,25 +176,33 @@ export default function Home(){
      <div className="page-heading"><div><p className="eyebrow">{live?"LIVE ADMIN DATA":"AGENT CONFIGURATION"}</p><h1>{titles[active]||placeholders[active]?.title}</h1><p className="subheading">{active==="requests"?"Review business requests and approve or decline access.":active==="businesses"?"Internal records of approved businesses. No client portal or login is created.":active==="connections"?"Officially authorized platform connections and their status.":active==="tasks"?"Review internal task history and execution states.":active==="security"?"Internal administrator actions and audit trail.":active==="automations"?"Review automation definitions stored in the control plane. Execution remains disabled until the agent runtime is configured.":placeholders[active]?.description}</p></div><span className="date-label">PRIVATE ADMIN AREA</span></div>
      {dataError&&<p className="data-error">{dataError}</p>}
      {active==="connections" ? <>
-      <section className="panel integration-preview">
-       <div className="panel-heading"><div><span className="panel-kicker">CLIENT-SIDE EXPERIENCE</span><h2>AI experience preview</h2><p>Shopify can expose Business AI through its approved app entry in admin navigation. Compatible custom dashboards may use a floating shortcut.</p></div><span className="preview-label">VISUAL PREVIEW</span></div>
-       <div className="mock-admin">
-        <div className="mock-top"><b>my-store.myshopify.com</b><span>Shopify admin · illustrative</span></div>
-        <div className="mock-body">
-         <aside className="mock-side"><b>MY STORE</b><span>Home</span><span>Orders</span><span className="mock-selected">Products</span><span>Customers</span><span>✳ Business AI</span><span>Settings</span></aside>
-         <div className="mock-content"><div className="mock-page-title"><div><small>CATALOG</small><h3>Products</h3></div></div>
-          <div className="mock-product"><div className="mock-product-thumb">⌚</div><div><b>Classic Watch</b><small>Inventory · 24 available</small></div><strong>Rs. 4,500</strong></div>
-          <div className="mock-product"><div className="mock-product-thumb">🎧</div><div><b>Wireless Headphones</b><small>Inventory · 12 available</small></div><strong>Rs. 3,200</strong></div>
-          <div className="mock-hint">The client remains inside their own Shopify admin. This preview does not install or connect anything.</div>
-         </div>
-        </div>
-        <button type="button" className="mock-ai-launcher" aria-label="Open AI assistant preview" onClick={()=>setPreviewOpen(v=>!v)}>✳ AI</button>
-        {previewOpen ? <div className="mock-ai-panel"><div className="mock-ai-head"><b>Business AI Assistant</b><button type="button" onClick={()=>setPreviewOpen(false)}>Close</button></div><div className="mock-ai-chat"><b>Hi! How can I help your store today?</b><p>Ask about products, stock, orders or sales.</p><span className="mock-suggestion">Show me low-stock products</span><span className="mock-suggestion">What were today’s sales?</span><span className="mock-suggestion">Update a product price</span><div className="mock-ai-note">Sensitive changes can require owner approval. Sample only — messages and actions are not connected.</div></div></div> : null}
+      <section className="integration-hub">
+       <div className="integration-intro"><div><span className="panel-kicker">INTEGRATION CENTER</span><h2>Add a business website</h2><p>Choose its platform, enter the domain and select the supported authorization method. Every business stays isolated.</p></div><span className="hub-count">{rows.filter(x=>x.connection_status==="active").length} ACTIVE CONNECTIONS</span></div>
+       <div className="integration-choices">
+        <button type="button" className={setupPlatform==="shopify"?"integration-choice selected":"integration-choice"} onClick={()=>{setSetupPlatform("shopify");setSetupMethod("oauth");}}><span className="integration-logo shopify-mark">S</span><b>Shopify</b><small>Official Shopify authorization</small></button>
+        <button type="button" className={setupPlatform==="woocommerce"?"integration-choice selected":"integration-choice"} onClick={()=>{setSetupPlatform("woocommerce");setSetupMethod("rest_api");}}><span className="integration-logo woo-mark">W</span><b>WooCommerce</b><small>WooCommerce REST API</small></button>
+        <button type="button" className={setupPlatform==="hostinger"?"integration-choice selected":"integration-choice"} onClick={()=>{setSetupPlatform("hostinger");setSetupMethod("wordpress_plugin");}}><span className="integration-logo hostinger-mark">H</span><b>Hostinger</b><small>WordPress plugin or custom API</small></button>
+        <button type="button" className={setupPlatform==="custom"?"integration-choice selected":"integration-choice"} onClick={()=>{setSetupPlatform("custom");setSetupMethod("custom_api");}}><span className="integration-logo custom-mark">&lt;/&gt;</span><b>Custom coded</b><small>Secure custom API / SDK</small></button>
        </div>
+       <form className="panel integration-form" onSubmit={startConnectionSetup}>
+        <div className="panel-heading"><div><span className="panel-kicker">NEW CONNECTION</span><h2>{setupPlatform==="shopify"?"Connect Shopify":setupPlatform==="woocommerce"?"Connect WooCommerce":setupPlatform==="hostinger"?"Connect Hostinger website":"Connect custom website"}</h2><p>Setup is saved as pending until the platform's real authorization is completed.</p></div><span className="pending-label">AUTHORIZATION REQUIRED</span></div>
+        <div className="integration-fields">
+         <label>Approved business<select value={setupBusiness} onChange={e=>setSetupBusiness(e.target.value)} required><option value="">Select a business</option>{businessOptions.map(b=><option key={b.id} value={b.id}>{b.business_name} · {b.contact_email||"No email"}</option>)}</select></label>
+         <label>Website / store domain<input value={setupDomain} onChange={e=>setSetupDomain(e.target.value)} placeholder={setupPlatform==="shopify"?"your-store.myshopify.com":"https://example.com"} required/></label>
+         <label>Connection method<select value={setupMethod} onChange={e=>setSetupMethod(e.target.value)}>{setupPlatform==="shopify"?<option value="oauth">Shopify hosted OAuth</option>:setupPlatform==="woocommerce"?<option value="rest_api">WooCommerce REST API keys</option>:setupPlatform==="hostinger"?<><option value="wordpress_plugin">WordPress plugin (recommended for WordPress)</option><option value="custom_api">Custom API endpoint</option></>:<option value="custom_api">Secure custom API / SDK</option>}</select></label>
+         <label>Internal setup note (optional)<input value={setupNotes} onChange={e=>setSetupNotes(e.target.value)} placeholder="Store owner / project reference"/></label>
+        </div>
+        <div className="integration-guidance">
+         {setupPlatform==="shopify"?<p><b>Shopify:</b> enter the <code>.myshopify.com</code> domain. The store owner must approve access on Shopify's own authorization page. We never collect their Shopify password or OTP.</p>:setupPlatform==="woocommerce"?<p><b>WooCommerce:</b> the store owner will generate REST API keys in WooCommerce and authorize the required read/write scopes. Keys must be submitted only through the future encrypted credential handoff — never through chat or ordinary notes.</p>:setupPlatform==="hostinger"?<p><b>Hostinger:</b> hosting provider alone is not an API. Select WordPress plugin if the site runs WordPress; otherwise use a custom API adapter. WordPress/WooCommerce credentials are separate from Hostinger login.</p>:<p><b>Custom coded:</b> the website needs an authenticated API contract or our SDK. Domain-only attachment cannot grant product, order or inventory access.</p>}
+        </div>
+        <div className="integration-form-actions"><button className="primary-action" type="submit" disabled={setupBusy||!setupBusiness}>{setupBusy?"Saving setup…":"Save connection setup"}</button><small>This creates a pending setup record only; it does not falsely mark a website as connected.</small></div>
+       </form>
       </section>
-      <section className="panel data-panel"><div className="panel-heading"><div><h2>Connected platforms</h2><p>Live authorization records from your secure backend</p></div><button className="small-action" onClick={()=>void loadSection("connections")}>Refresh</button></div>{renderRows()}</section>
-      <p className="privacy-note">Shopify placement will use its supported embedded app/navigation experience; a floating shortcut is only for compatible custom dashboards. Nothing is installed or connected by this preview.</p>
-     </> : active==="tasks" ? renderRows() : live ? renderRows() : active==="settings" ? <section className="panel data-panel"><div className="panel-heading"><div><h2>Workspace settings</h2><p>Private control-plane environment</p></div><span className="status-pill active">SECURE</span></div><div className="record-details"><span><b>Admin access:</b> Supabase Auth + private role check</span><span><b>Database region:</b> Mumbai (ap-south-1)</span><span><b>Client portal:</b> Not enabled</span><span><b>External integrations:</b> Paused</span><span><b>Production website:</b> Not connected or modified</span></div><p className="privacy-note">Admin roles are managed directly in the protected private_admins table. No public role-management controls are exposed.</p></section> : <section className="empty-panel"><div className="empty-symbol">{current.icon}</div><h2>No configuration yet</h2><p>{placeholders[active]?.description} No demo records are shown.</p></section>}
+      <section className="panel data-panel"><div className="panel-heading"><div><h2>Website connection records</h2><p>Pending authorizations and verified connections from your backend</p></div><button className="small-action" onClick={()=>void loadSection("connections")}>Refresh</button></div>
+       {dataBusy?<div className="empty-inline">Loading connections…</div>:rows.length===0?<div className="empty-inline">No connection records yet. Start by selecting a platform above.</div>:<div className="connection-record-list">{rows.map(row=><article className="connection-record" key={row.id}><div><div className="connection-record-title"><b>{String(row.platform).toUpperCase()}</b><span className={"status-pill "+(row.connection_status==="active"?"active":"pending")}>{row.connection_status==="active"?"CONNECTED":row.connection_status.toUpperCase()}</span></div><strong>{row.external_account_ref||"Domain not set"}</strong><small>Method: {row.connection_metadata?.setup_method||"—"} · Created: {date(row.created_at)}</small><small>{row.connection_metadata?.authorization_complete?"Authorization verified":row.connection_status==="active"?"Connection active":"Waiting for official platform authorization"}</small></div>{row.connection_status!=="active"&&<button className="danger-action" type="button" onClick={()=>void cancelConnectionSetup(row.id)}>Cancel setup</button>}</article>)}</div>}
+      </section>
+      <p className="privacy-note">A pending setup is not an integration. Live OAuth, API credential exchange, encrypted token storage, connection testing, webhooks and the embedded AI app still need their platform-specific implementation and credentials. No website is modified by saving this setup.</p>
+     </> : active==="tasks" ? renderRows() : live ? renderRows() : active==="settings" ? renderRows() : live ? renderRows() : active==="settings" ? <section className="panel data-panel"><div className="panel-heading"><div><h2>Workspace settings</h2><p>Private control-plane environment</p></div><span className="status-pill active">SECURE</span></div><div className="record-details"><span><b>Admin access:</b> Supabase Auth + private role check</span><span><b>Database region:</b> Mumbai (ap-south-1)</span><span><b>Client portal:</b> Not enabled</span><span><b>External integrations:</b> Paused</span><span><b>Production website:</b> Not connected or modified</span></div><p className="privacy-note">Admin roles are managed directly in the protected private_admins table. No public role-management controls are exposed.</p></section> : <section className="empty-panel"><div className="empty-symbol">{current.icon}</div><h2>No configuration yet</h2><p>{placeholders[active]?.description} No demo records are shown.</p></section>}
      {active==="businesses"&&<p className="privacy-note">Clients do not receive accounts on Creative Clan. Records are visible only to authorized internal administrators.</p>}
      {active==="connections"&&<p className="privacy-note">Authorization must be granted by the business owner through the platform's official consent flow. Never ask clients to send passwords.</p>}
     </>}
