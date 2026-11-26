@@ -111,7 +111,7 @@ export default function Home(){
  const current=sections.find(s=>s.id===active)!;
  const fmt=(v:unknown)=>v===null||v===undefined||v===""?"—":String(v);
  const date=(v:string)=>v?new Date(v).toLocaleString():"—";
- const live=["requests","businesses","connections","tasks","security","automations"].includes(active);
+ const live=["requests","businesses","connections","tasks","security","automations","credits"].includes(active);
 
  function renderRows(){
    if(dataBusy)return <section className="empty-panel"><h2>Loading records…</h2></section>;
