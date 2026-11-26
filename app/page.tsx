@@ -108,7 +108,7 @@ export default function Home(){
  const current=sections.find(s=>s.id===active)!;
  const fmt=(v:unknown)=>v===null||v===undefined||v===""?"—":String(v);
  const date=(v:string)=>v?new Date(v).toLocaleString():"—";
- const live=["requests","businesses","connections","tasks","security","automations","usage"].includes(active);
+ const live=["requests","businesses","connections","tasks","security","automations"].includes(active);
 
  function renderRows(){
    if(dataBusy)return <section className="empty-panel"><h2>Loading records…</h2></section>;
@@ -122,9 +122,9 @@ export default function Home(){
      {row.review_notes&&<p className="record-message">Review note: {row.review_notes}</p>}
     </article>)}
    </div></section>;
-   const headers=active==="businesses"?["Business","Platform","Website","Status","Approved"]:active==="connections"?["Platform","External account","Status","Scopes","Connected"]:active==="tasks"?["Task type","Status","Approval required","Result summary","Created"]:active==="automations"?["Automation","Trigger","Enabled","Approval required","Created"]:active==="usage"?["Provider","Model","Input tokens","Output tokens","Neurons","Estimated cost","Recorded"]:["Action","Resource","Outcome","Created"];
+   const headers=active==="businesses"?["Business","Platform","Website","Status","Approved"]:active==="connections"?["Platform","External account","Status","Scopes","Connected"]:active==="tasks"?["Task type","Status","Approval required","Result summary","Created"]:active==="automations"?["Automation","Trigger","Enabled","Approval required","Created"]:["Action","Resource","Outcome","Created"];
    return <section className="panel data-panel"><div className="panel-heading"><div><h2>{rows.length} records</h2><p>Latest 100 records</p></div><button className="small-action" onClick={()=>void loadSection(active)}>Refresh</button></div><div className="table-wrap"><table className="records-table"><thead><tr>{headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>
-   {rows.map(row=><tr key={row.id}>{(active==="businesses"?[row.business_name,row.platform,row.website_url,row.status,date(row.approved_at)]:active==="connections"?[row.platform,row.external_account_ref,row.connection_status,(row.granted_scopes||[]).join(", "),date(row.connected_at)]:active==="tasks"?[row.task_type,row.status,row.requires_approval?"Yes":"No",row.output?.response?String(row.output.response).slice(0,100):"—",date(row.created_at)]:active==="automations"?[row.name,row.trigger_type,row.is_enabled?"Yes":"No",row.requires_approval?"Yes":"No",date(row.created_at)]:active==="usage"?[row.provider,row.model,row.input_units,row.output_units,row.metadata?.neurons_estimate??"—",fmt(row.estimated_cost)+" "+fmt(row.currency),date(row.recorded_at)]:[row.action,row.resource_type,row.outcome,date(row.created_at)]).map((v,i)=><td key={i}>{fmt(v)}</td>)}</tr>)}
+   {rows.map(row=><tr key={row.id}>{(active==="businesses"?[row.business_name,row.platform,row.website_url,row.status,date(row.approved_at)]:active==="connections"?[row.platform,row.external_account_ref,row.connection_status,(row.granted_scopes||[]).join(", "),date(row.connected_at)]:active==="tasks"?[row.task_type,row.status,row.requires_approval?"Yes":"No",row.output?.response?String(row.output.response).slice(0,100):"—",date(row.created_at)]:active==="automations"?[row.name,row.trigger_type,row.is_enabled?"Yes":"No",row.requires_approval?"Yes":"No",date(row.created_at)]:[row.action,row.resource_type,row.outcome,date(row.created_at)]).map((v,i)=><td key={i}>{fmt(v)}</td>)}</tr>)}
    </tbody></table></div></section>;
  }
 
