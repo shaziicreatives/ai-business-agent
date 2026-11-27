@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Creative Clan | Private Admin Console",
   description: "Private super admin console for the Creative Clan AI Business Agent.",
-  icons: { icon: "/favicon.webp", shortcut: "/favicon.webp" }
+  icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" }
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
