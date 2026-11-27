@@ -155,6 +155,9 @@ export default {
             const targets = createdData.targets || createdData.result?.targets || [];
             const liveViewUrl = targets.find(t => t.devtoolsFrontendUrl)?.devtoolsFrontendUrl;
             if (!sessionId || !liveViewUrl) throw new Error("Browser session started, but Cloudflare did not return a Live View link.");
+            const startScript = "async ({ page }) => { await page.goto(" + JSON.stringify(target.toString()) + ", { waitUntil: 'domcontentloaded' }); return { url: page.url(), title: await page.title() }; }";
+            const initialized = await fetch("https://api.cloudflare.com/client/v4/accounts/" + encodeURIComponent(env.CF_ACCOUNT_ID) + "/browser-run/script/" + encodeURIComponent(sessionId), { method: "POST", headers: { authorization: "Bearer " + env.CF_BROWSER_RUN_API_TOKEN, "content-type": "application/json" }, body: JSON.stringify({ code: startScript, library: "playwright" }) });
+            if (!initialized.ok) { await fetch("https://api.cloudflare.com/client/v4/accounts/" + encodeURIComponent(env.CF_ACCOUNT_ID) + "/browser-run/devtools/browser/" + encodeURIComponent(sessionId), { method: "DELETE", headers: { authorization: "Bearer " + env.CF_BROWSER_RUN_API_TOKEN } }); throw new Error("Browser opened, but could not load the client's Admin Panel."); }
             response = json({ ok: true, data: { session_id: sessionId, live_view_url: liveViewUrl, target_url: target.toString(), expires_in_seconds: 600 } }, 200, requestId, origin);
           } else {
             const sessionId = String(body.session_id || "");
@@ -166,6 +169,7 @@ export default {
             const inspectedData = await inspected.json().catch(() => ({}));
             if (!inspected.ok) throw new Error(inspectedData?.errors?.[0]?.message || "Read-only browser inspection failed.");
             const report = inspectedData.result ?? inspectedData;
+            await fetch("https://api.cloudflare.com/client/v4/accounts/" + encodeURIComponent(env.CF_ACCOUNT_ID) + "/browser-run/devtools/browser/" + encodeURIComponent(sessionId), { method: "DELETE", headers: { authorization: "Bearer " + env.CF_BROWSER_RUN_API_TOKEN } });
             const saved = await fetch(env.SUPABASE_URL + "/functions/v1/admin-console", { method: "POST", headers: upstreamHeaders, body: JSON.stringify({ action: "save_browser_inspection", scan_id: scanId, report }) });
             const savedData = await saved.json().catch(() => ({}));
             if (!saved.ok || !savedData.ok) throw new Error(savedData.error || "Could not save the browser inspection report.");
