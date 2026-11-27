@@ -45,6 +45,9 @@ export default function Home(){
  const [scanBusy,setScanBusy]=useState(false);
  const [scanResult,setScanResult]=useState<RowData|null>(null);
  const [scanHistory,setScanHistory]=useState<RowData[]>([]);
+ const [browserSession,setBrowserSession]=useState<RowData|null>(null);
+ const [browserBusy,setBrowserBusy]=useState(false);
+ const [browserMessage,setBrowserMessage]=useState("");
  const [branding,setBranding]=useState<{login_logo_url:string|null;favicon_url:string|null}>({login_logo_url:null,favicon_url:null});
  const [brandingLogoFile,setBrandingLogoFile]=useState<File|null>(null);
  const [brandingFaviconFile,setBrandingFaviconFile]=useState<File|null>(null);
@@ -97,6 +100,41 @@ export default function Home(){
      const history=await action("panel_scans");setScanHistory(history.data||[]);
    }catch(e){setDataError(e instanceof Error?e.message:"Compatibility scan failed.");}
    finally{setScanBusy(false);}
+ }
+ async function startSecureBrowser(){
+   if(!scanResult?.id||!scanResult?.normalized_url){setBrowserMessage("Open a saved scan report first.");return;}
+   setBrowserBusy(true);setBrowserMessage("");
+   try{
+     const {data:{session},error:sessionError}=await supabase.auth.getSession();
+     if(sessionError||!session)throw new Error("Your admin session has expired. Please sign in again.");
+     const response=await fetch(process.env.NEXT_PUBLIC_API_BASE_URL+"/v1/admin/panel-scan/browser-session",{
+       method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+session.access_token},
+       body:JSON.stringify({url:scanResult.normalized_url})
+     });
+     const data=await response.json().catch(()=>({}));
+     if(!response.ok||!data?.ok)throw new Error(data?.error||"Could not start secure browser.");
+     setBrowserSession({...data.data,scan_id:scanResult.id});
+     setBrowserMessage("Secure browser is ready. Open Live Browser, sign in yourself, then return here.");
+   }catch(e){setBrowserMessage(e instanceof Error?e.message:"Could not start secure browser.");}
+   finally{setBrowserBusy(false);}
+ }
+ async function runAuthenticatedInspection(){
+   if(!browserSession?.session_id||!browserSession?.scan_id){setBrowserMessage("Start a secure browser session first.");return;}
+   setBrowserBusy(true);setBrowserMessage("");
+   try{
+     const {data:{session},error:sessionError}=await supabase.auth.getSession();
+     if(sessionError||!session)throw new Error("Your admin session has expired. Please sign in again.");
+     const response=await fetch(process.env.NEXT_PUBLIC_API_BASE_URL+"/v1/admin/panel-scan/browser-inspect",{
+       method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+session.access_token},
+       body:JSON.stringify({session_id:browserSession.session_id,scan_id:browserSession.scan_id})
+     });
+     const data=await response.json().catch(()=>({}));
+     if(!response.ok||!data?.ok)throw new Error(data?.error||"Read-only inspection failed.");
+     setScanResult(data.data);setBrowserSession(null);
+     setBrowserMessage("Inspection completed. The updated report has been saved.");
+     const history=await action("panel_scans");setScanHistory(history.data||[]);
+   }catch(e){setBrowserMessage(e instanceof Error?e.message:"Read-only inspection failed.");}
+   finally{setBrowserBusy(false);}
  }
  async function verify(token:string){
    const response=await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/v1/admin/verify`,{
@@ -292,6 +330,23 @@ export default function Home(){
         </div>
         <div className="scan-findings"><b>What the scanner found</b>{(scanResult.findings||[]).map((item:RowData,index:number)=><div key={index}><span className={"finding-dot "+String(item.status||"")}></span><span><strong>{item.label}</strong><small>{item.detail}</small></span></div>)}</div>
         <div className="scan-recommendations"><b>Recommended next steps</b><ul>{(scanResult.recommendations||[]).map((item:string,index:number)=><li key={index}>{item}</li>)}</ul></div>
+        {scanResult.recommended_method==="secure_browser"&&<div className="scan-recommendations">
+         <b>Secure browser inspection</b>
+         <p>Open a temporary Cloudflare browser, sign in yourself, then run a read-only check. The agent will not click buttons, submit forms or collect field values.</p>
+         {!browserSession?<button type="button" className="primary-action" disabled={browserBusy||!scanResult.id} onClick={()=>void startSecureBrowser()}>{browserBusy?"Starting browser…":"Start secure browser"}</button>:<>
+          <p><a href={browserSession.live_view_url} target="_blank" rel="noreferrer">Open Live Browser to sign in</a></p>
+          <p>After you finish signing in, return to this page.</p>
+          <button type="button" className="primary-action" disabled={browserBusy} onClick={()=>void runAuthenticatedInspection()}>{browserBusy?"Inspecting…":"I have logged in — inspect now"}</button>
+         </>}
+         {browserMessage&&<p role="status">{browserMessage}</p>}
+        </div>}
+        {scanResult.scan_report?.browser_inspection&&<div className="scan-findings">
+         <b>Authenticated inspection result</b>
+         <p>Inspected: {date(scanResult.scan_report.browser_inspection.inspected_at)}</p>
+         <p>Page: {scanResult.scan_report.browser_inspection.title||"No title"} · {scanResult.scan_report.browser_inspection.url||""}</p>
+         <p>Headings: {scanResult.scan_report.browser_inspection.headings?.length||0} · Links: {scanResult.scan_report.browser_inspection.links?.length||0} · Forms: {scanResult.scan_report.browser_inspection.forms?.length||0} · Buttons: {scanResult.scan_report.browser_inspection.buttons?.length||0}</p>
+         <p>No buttons clicked. No forms submitted. No field values collected.</p>
+        </div>}
         <p className="scan-disclaimer">Important: this first scan is unauthenticated and read-only. It does not prove that private Admin Panel actions or browser automation will work. A secure logged-in browser test is a separate next stage.</p>
        </section>}
       </section>
