@@ -218,12 +218,13 @@ test("admin panel scanner performs unauthenticated GET-only inspection and store
   try {
     const response = await worker.fetch(new Request("https://api.example/v1/admin/panel-scan", {
       method: "POST", headers: { Origin: ADMIN_ORIGIN, Authorization: "Bearer test-user-jwt", "Content-Type": "application/json" },
-      body: JSON.stringify({ url: "https://store.example/admin" })
+      body: JSON.stringify({ url: "https://store.example/admin?token=must-not-be-stored" })
     }), env);
     const data = await response.json();
     assert.equal(response.status, 200);
     assert.equal(data.ok, true);
     assert.equal(data.data.recommended_method, "secure_browser");
+    assert.equal(data.data.submitted_url, "https://store.example/admin");
     assert.equal(data.data.scan_report.browser_automation_tested, false);
     const targetCall = calls.find(call => call.url === "https://store.example/admin");
     assert.equal(targetCall.init.method, "GET");
