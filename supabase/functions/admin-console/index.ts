@@ -379,6 +379,69 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, data, message: "Passive compatibility scan saved. No login or business data was accessed." });
     }
 
+    if (action === "invoices") {
+      const [invoiceResult, businessResult] = await Promise.all([
+        admin.from("admin_invoices").select("*").order("created_at", { ascending: false }).limit(100),
+        admin.from("authorized_businesses").select("id,business_name,owner_name,contact_email").eq("status", "active").order("business_name")
+      ]);
+      if (invoiceResult.error) throw invoiceResult.error;
+      if (businessResult.error) throw businessResult.error;
+      const businessById = new Map((businessResult.data || []).map((b: any) => [b.id, b]));
+      const data = (invoiceResult.data || []).map((invoice: any) => ({
+        ...invoice, business_name: businessById.get(invoice.business_id)?.business_name || "—"
+      }));
+      return json({ ok: true, data, businesses: businessResult.data || [] });
+    }
+
+    if (action === "create_invoice") {
+      const description = typeof body.description === "string" ? body.description.trim().slice(0, 300) : "";
+      const amount = Number(body.amount);
+      const businessId = typeof body.business_id === "string" && body.business_id ? body.business_id : null;
+      const dueDate = typeof body.due_date === "string" && body.due_date ? body.due_date : null;
+      if (!description || !Number.isFinite(amount) || amount <= 0 || amount > 1000000000) {
+        return json({ error: "Enter an invoice description and a valid amount." }, 400);
+      }
+      if (businessId) {
+        const { data: business, error: businessError } = await admin.from("authorized_businesses")
+          .select("id").eq("id", businessId).eq("status", "active").maybeSingle();
+        if (businessError) throw businessError;
+        if (!business) return json({ error: "Select a valid active business." }, 400);
+      }
+      const { data: invoiceNumber, error: numberError } = await admin.rpc("next_admin_invoice_number");
+      if (numberError) throw numberError;
+      const { data, error } = await admin.from("admin_invoices").insert({
+        invoice_number: invoiceNumber, business_id: businessId, description, amount,
+        currency: "PKR", due_date: dueDate, status: "draft", created_by: actor
+      }).select("*").single();
+      if (error) throw error;
+      await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, action: "invoice_created", resource_type: "admin_invoice",
+        resource_id: data.id, outcome: "success",
+        details: { invoice_number: data.invoice_number, amount, business_id: businessId }
+      });
+      return json({ ok: true, data, message: "Invoice created." });
+    }
+
+    if (action === "update_invoice") {
+      const id = String(body.id || "");
+      const status = String(body.status || "");
+      if (!id || !["draft", "issued", "paid", "overdue", "void"].includes(status)) {
+        return json({ error: "Choose a valid invoice status." }, 400);
+      }
+      const now = new Date().toISOString();
+      const updates: Record<string, unknown> = { status, updated_at: now };
+      if (status === "issued") updates.issued_at = now;
+      if (status === "paid") updates.paid_at = now;
+      const { data, error } = await admin.from("admin_invoices").update(updates)
+        .eq("id", id).select("*").single();
+      if (error) throw error;
+      await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, action: "invoice_status_updated", resource_type: "admin_invoice",
+        resource_id: id, outcome: "success", details: { status, invoice_number: data.invoice_number }
+      });
+      return json({ ok: true, data });
+    }
+
     return json({ error: "Unknown action" }, 400);
   } catch (error) {
     console.error("admin-console error", error);
