@@ -47,6 +47,8 @@ export default function Home(){
  const [scanResult,setScanResult]=useState<RowData|null>(null);
  const [scanHistory,setScanHistory]=useState<RowData[]>([]);
  const [browserSession,setBrowserSession]=useState<RowData|null>(null);
+ const [approvedBusinesses,setApprovedBusinesses]=useState<RowData[]>([]);
+ const [browserBusinessId,setBrowserBusinessId]=useState("");
  const [browserBusy,setBrowserBusy]=useState(false);
  const [browserMessage,setBrowserMessage]=useState("");
  const [branding,setBranding]=useState<{login_logo_url:string|null;favicon_url:string|null}>({login_logo_url:null,favicon_url:null});
@@ -104,13 +106,14 @@ export default function Home(){
  }
  async function startSecureBrowser(){
    if(!scanResult?.id||!scanResult?.normalized_url){setBrowserMessage("Open a saved scan report first.");return;}
+   if(!browserBusinessId){setBrowserMessage("Select the approved client business for this website first.");return;}
    setBrowserBusy(true);setBrowserMessage("");
    try{
      const {data:{session},error:sessionError}=await supabase.auth.getSession();
      if(sessionError||!session)throw new Error("Your admin session has expired. Please sign in again.");
      const response=await fetch(process.env.NEXT_PUBLIC_API_BASE_URL+"/v1/admin/panel-scan/browser-session",{
        method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+session.access_token},
-       body:JSON.stringify({url:scanResult.normalized_url})
+       body:JSON.stringify({url:scanResult.normalized_url,scan_id:scanResult.id,business_id:browserBusinessId})
      });
      const data=await response.json().catch(()=>({}));
      if(!response.ok||!data?.ok)throw new Error(data?.error||"Could not start secure browser.");
@@ -158,7 +161,7 @@ export default function Home(){
    });
    return()=>{mounted=false;sub.subscription.unsubscribe();};
  },[]);
- useEffect(()=>{if(adminEmail){void loadOverview();void loadSection(active);}},[adminEmail,active,loadOverview,loadSection]);
+ useEffect(()=>{if(adminEmail){void loadOverview();void loadSection(active);action("businesses").then(d=>setApprovedBusinesses((d.data||[]).filter((b:RowData)=>b.status==="active"&&b.website_url))).catch(()=>setApprovedBusinesses([]));}},[adminEmail,active,loadOverview,loadSection,action]);
  useEffect(()=>{
    let mounted=true;
    supabase.from("admin_branding").select("login_logo_url,favicon_url").eq("id",true).maybeSingle().then(({data})=>{
@@ -334,7 +337,7 @@ export default function Home(){
         {scanResult.recommended_method==="secure_browser"&&<div className="scan-recommendations">
          <b>Secure browser inspection</b>
          <p>Open a temporary Cloudflare browser, sign in yourself, then run a read-only check. The agent will not click buttons, submit forms or collect field values.</p>
-         {!browserSession?<button type="button" className="primary-action" disabled={browserBusy||!scanResult.id} onClick={()=>void startSecureBrowser()}>{browserBusy?"Starting browser…":"Start secure browser"}</button>:<>
+         {!browserSession?<><label className="browser-business-select">Approved client business<select value={browserBusinessId} onChange={e=>setBrowserBusinessId(e.target.value)}><option value="">Choose the client linked to this website</option>{approvedBusinesses.map(b=><option key={b.id} value={b.id}>{b.business_name} — {b.website_url}</option>)}</select></label><button type="button" className="primary-action" disabled={browserBusy||!scanResult.id||!browserBusinessId} onClick={()=>void startSecureBrowser()}>{browserBusy?"Starting browser…":"Start secure browser"}</button></>:<>
           <p><a href={browserSession.live_view_url} target="_blank" rel="noreferrer">Open Live Browser to sign in</a></p>
           <p>After you finish signing in, return to this page.</p>
           <button type="button" className="primary-action" disabled={browserBusy} onClick={()=>void runAuthenticatedInspection()}>{browserBusy?"Inspecting…":"I have logged in — inspect now"}</button>
