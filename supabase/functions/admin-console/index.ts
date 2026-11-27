@@ -383,9 +383,16 @@ Deno.serve(async (req: Request) => {
       const scanId = String(body.scan_id || "");
       const report = body.report && typeof body.report === "object" ? body.report : null;
       if (!/^[0-9a-fA-F-]{36}$/.test(scanId) || !report) return json({ error: "A valid scan and inspection report are required." }, 400);
-      const { data: existing, error: readError } = await admin.from("admin_panel_scans")
-        .select("id,created_by,scan_report").eq("id", scanId).eq("created_by", actor).single();
-      if (readError || !existing) return json({ error: "Scan report not found for this admin account." }, 404);
+      const { data: selectedScan, error: readError } = await admin.from("admin_panel_scans")
+        .select("id,created_by,normalized_url").eq("id", scanId).eq("created_by", actor).single();
+      if (readError || !selectedScan) return json({ error: "Scan report not found for this admin account." }, 404);
+      // Keep one current website map per admin + normalized website URL.
+      // Store/update it on the newest existing scan row for that URL; never insert a map row.
+      const { data: existing, error: canonicalError } = await admin.from("admin_panel_scans")
+        .select("id,created_by,scan_report,normalized_url")
+        .eq("created_by", actor).eq("normalized_url", selectedScan.normalized_url)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (canonicalError || !existing) return json({ error: "Could not find the canonical scan record for this website." }, 404);
       const safeReport = {
         inspected_at: new Date().toISOString(),
         url: typeof report.url === "string" ? report.url.slice(0, 2048) : null,
@@ -482,7 +489,7 @@ Deno.serve(async (req: Request) => {
         }
       });
       if (auditError) throw auditError;
-      return json({ ok: true, data, message: "Website structure map saved. Button functions remain unverified." });
+      return json({ ok: true, data, message: "Website map created or replaced on the single current record for this website URL. Button functions remain unverified." });
     }
 
     if (action === "invoices") {
