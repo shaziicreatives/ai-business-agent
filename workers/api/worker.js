@@ -124,6 +124,57 @@ export default {
         }
       }, 200, requestId, origin);
 
+    } else if (request.method === "POST" && (url.pathname === "/v1/admin/panel-scan/browser-session" || url.pathname === "/v1/admin/panel-scan/browser-inspect")) {
+      const authorization = request.headers.get("Authorization");
+      if (!authorization?.startsWith("Bearer ")) {
+        response = json({ ok: false, error: "Unauthorized", request_id: requestId }, 401, requestId, origin);
+      } else if (!env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY) {
+        response = json({ ok: false, error: "Scanner service is not configured", request_id: requestId }, 503, requestId, origin);
+      } else if (!env.CF_BROWSER_RUN_API_TOKEN || !env.CF_ACCOUNT_ID) {
+        response = json({ ok: false, error: "Secure browser is not configured yet. Add the Cloudflare Browser Run API token and account ID to this Worker.", request_id: requestId }, 503, requestId, origin);
+      } else {
+        try {
+          const raw = await request.arrayBuffer();
+          if (raw.byteLength > 8192) throw new Error("Browser inspection request is too large.");
+          const body = JSON.parse(new TextDecoder().decode(raw) || "{}");
+          const upstreamHeaders = { apikey: env.SUPABASE_PUBLISHABLE_KEY, authorization, "content-type": "application/json" };
+          const verify = await fetch(env.SUPABASE_URL + "/functions/v1/admin-verify", { method: "POST", headers: upstreamHeaders, body: "{}" });
+          const verified = await verify.json().catch(() => ({}));
+          if (!verify.ok || !verified.authorized) {
+            response = json({ ok: false, error: "Admin access denied", request_id: requestId }, 403, requestId, origin);
+          } else if (url.pathname.endsWith("/browser-session")) {
+            let target;
+            try { target = new URL(String(body.url || "")); } catch { throw new Error("A valid client Admin Panel URL is required."); }
+            if (target.protocol !== "https:" || target.username || target.password || !target.hostname) throw new Error("Use a public HTTPS Admin Panel URL without embedded credentials.");
+            await assertPublicHostname(target.hostname);
+            const endpoint = "https://api.cloudflare.com/client/v4/accounts/" + encodeURIComponent(env.CF_ACCOUNT_ID) + "/browser-run/devtools/browser?keep_alive=600000&targets=true";
+            const created = await fetch(endpoint, { method: "POST", headers: { authorization: "Bearer " + env.CF_BROWSER_RUN_API_TOKEN, accept: "application/json" } });
+            const createdData = await created.json().catch(() => ({}));
+            if (!created.ok) throw new Error(createdData?.errors?.[0]?.message || "Cloudflare could not create a browser session.");
+            const sessionId = createdData.sessionId || createdData.result?.sessionId;
+            const targets = createdData.targets || createdData.result?.targets || [];
+            const liveViewUrl = targets.find(t => t.devtoolsFrontendUrl)?.devtoolsFrontendUrl;
+            if (!sessionId || !liveViewUrl) throw new Error("Browser session started, but Cloudflare did not return a Live View link.");
+            response = json({ ok: true, data: { session_id: sessionId, live_view_url: liveViewUrl, target_url: target.toString(), expires_in_seconds: 600 } }, 200, requestId, origin);
+          } else {
+            const sessionId = String(body.session_id || "");
+            const scanId = String(body.scan_id || "");
+            if (!/^[a-zA-Z0-9-]{16,80}$/.test(sessionId) || !/^[0-9a-fA-F-]{36}$/.test(scanId)) throw new Error("A valid browser session and scan record are required.");
+            const code = "async ({ page }) => { const pages = page.context().pages(); const active = pages[0] || page; return await active.evaluate(() => ({ url: location.href, title: document.title, headings: [...document.querySelectorAll('h1,h2,h3')].map(x => (x.innerText || '').trim()).filter(Boolean).slice(0, 30), links: [...document.querySelectorAll('a[href]')].map(x => ({ text: (x.innerText || '').trim().slice(0, 120), href: x.href })).slice(0, 80), forms: [...document.forms].map(f => ({ action: f.action, method: f.method, fields: [...f.elements].map(e => ({ name: e.name || '', type: e.type || '', required: !!e.required })).slice(0, 30) })).slice(0, 20), buttons: [...document.querySelectorAll('button')].map(x => ({ text: (x.innerText || '').trim().slice(0, 120), disabled: !!x.disabled })).slice(0, 60), body_text: (document.body?.innerText || '').slice(0, 12000) })); }";
+            const inspectUrl = "https://api.cloudflare.com/client/v4/accounts/" + encodeURIComponent(env.CF_ACCOUNT_ID) + "/browser-run/script/" + encodeURIComponent(sessionId);
+            const inspected = await fetch(inspectUrl, { method: "POST", headers: { authorization: "Bearer " + env.CF_BROWSER_RUN_API_TOKEN, "content-type": "application/json", accept: "application/json" }, body: JSON.stringify({ code, library: "playwright" }) });
+            const inspectedData = await inspected.json().catch(() => ({}));
+            if (!inspected.ok) throw new Error(inspectedData?.errors?.[0]?.message || "Read-only browser inspection failed.");
+            const report = inspectedData.result ?? inspectedData;
+            const saved = await fetch(env.SUPABASE_URL + "/functions/v1/admin-console", { method: "POST", headers: upstreamHeaders, body: JSON.stringify({ action: "save_browser_inspection", scan_id: scanId, report }) });
+            const savedData = await saved.json().catch(() => ({}));
+            if (!saved.ok || !savedData.ok) throw new Error(savedData.error || "Could not save the browser inspection report.");
+            response = json({ ok: true, data: savedData.data, message: "Read-only browser inspection completed and saved." }, 200, requestId, origin);
+          }
+        } catch (error) {
+          response = json({ ok: false, error: error instanceof Error ? error.message : "Secure browser inspection failed.", request_id: requestId }, 400, requestId, origin);
+        }
+      }
     } else if (request.method === "POST" && url.pathname === "/v1/admin/panel-scan") {
       const authorization = request.headers.get("Authorization");
       if (!authorization?.startsWith("Bearer ")) {
