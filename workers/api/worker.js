@@ -74,7 +74,7 @@ async function readLimitedText(response,limit=MAX_SCAN_BYTES){
 async function passiveAdminPanelScan(input){
  let target;try{target=new URL(input.includes("://")?input:"https://"+input);}catch{throw new Error("Enter a valid Admin Panel URL.");}
  if(target.protocol!=="https:"||target.username||target.password||(target.port&&target.port!=="443")||!target.hostname)throw new Error("For safety, scan only public HTTPS URLs without embedded credentials or custom ports.");
- target.hash="";target.hostname=target.hostname.toLowerCase();await assertPublicHostname(target.hostname);
+ target.search="";target.hash="";target.hostname=target.hostname.toLowerCase();await assertPublicHostname(target.hostname);
  const response=await fetch(target.toString(),{method:"GET",redirect:"manual",headers:{accept:"text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.5","user-agent":"AI-Business-Agent-Compatibility-Scanner/1.0"}});
  const contentType=response.headers.get("content-type")||"",body=/text|json|javascript/.test(contentType)?await readLimitedText(response):"",lower=body.toLowerCase();
  const title=(body.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||"").replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim().slice(0,160);
@@ -93,7 +93,7 @@ async function passiveAdminPanelScan(input){
  else recommendations.push("No public API specification was confirmed. Inspect the Admin Panel through an authenticated session or obtain documented API access.");
  if(!title)add("Page title","not_found","No readable page title was returned without authentication.");
  add("Private data access","not_tested","No login, cookies, passwords, OTPs or private business data were accessed.");add("Write operations","not_tested","GET requests only; the target website was not changed.");
- return{submitted_url:input.slice(0,2048),normalized_url:target.toString().slice(0,2048),scan_status:"completed",http_status:response.status,detected_stack:tech.join("; ")||"Not identified from public response",recommended_method:recommendedMethod,confidence,findings,recommendations,scan_report:{page_title:title||null,hostname:target.hostname,content_type:contentType.split(";")[0]||null,login_required:loginRequired,openapi_spec_found:openApiFound,inspection:"passive_unauthenticated_get_only",browser_automation_tested:false,api_access_verified:false,no_target_data_modified:true}};
+ return{submitted_url:target.toString().slice(0,2048),normalized_url:target.toString().slice(0,2048),scan_status:"completed",http_status:response.status,detected_stack:tech.join("; ")||"Not identified from public response",recommended_method:recommendedMethod,confidence,findings,recommendations,scan_report:{page_title:title||null,hostname:target.hostname,content_type:contentType.split(";")[0]||null,login_required:loginRequired,openapi_spec_found:openApiFound,inspection:"passive_unauthenticated_get_only",browser_automation_tested:false,api_access_verified:false,no_target_data_modified:true}};
 }
 
 export default {
