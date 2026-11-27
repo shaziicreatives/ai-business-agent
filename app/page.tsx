@@ -125,9 +125,9 @@ export default function Home(){
  },[]);
  useEffect(()=>{
    if(typeof document==="undefined")return;
-   let link=document.querySelector<HTMLLinkElement>('link[rel="icon"]');
-   if(!link){link=document.createElement("link");link.rel="icon";document.head.appendChild(link);}
-   link.href=faviconUrl;
+   const links=document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]');
+   if(links.length===0){const link=document.createElement("link");link.rel="icon";document.head.appendChild(link);link.href=faviconUrl;}
+   else links.forEach(link=>{link.href=faviconUrl;});
  },[faviconUrl]);
  async function saveBranding(){
    setBrandingBusy(true);setBrandingMessage("");
