@@ -1,5 +1,11 @@
 const ADMIN_ORIGIN = "https://ai-business-agent-admin.pages.dev";
-function isAllowedOrigin(origin) { return origin === ADMIN_ORIGIN || /^https:\/\/[a-z0-9-]+\.ai-business-agent-admin\.pages\.dev$/.test(origin || ""); }
+function isAllowedOrigin(origin) {
+  if (origin === ADMIN_ORIGIN || /^https:\/\/[a-z0-9-]+\.ai-business-agent-admin\.pages\.dev$/.test(origin || "")) return true;
+  try {
+    const host = new URL(origin).hostname;
+    return host === "ultimate-esthetics-demo.pages.dev" || host.endsWith(".ultimate-esthetics-demo.pages.dev");
+  } catch { return false; }
+}
 const VERSION = "0.5.0";
 const MAX_BODY_BYTES = 32 * 1024;
 
@@ -41,7 +47,7 @@ function statusPayload() {
       public_access_requests: true,
       ai_model: true,
       business_integrations: false,
-      clinic_read_only_summary: true,
+      clinic_read_only_summary: true,\n      clinic_signed_assertion_bridge: true,
       automation_execution: false,
       ai_command_analysis: true,
       admin_panel_compatibility_scan: true,
@@ -51,34 +57,113 @@ function statusPayload() {
 }
 
 
-async function loadUltimateEstheticsSummary(env, businessId) {
-  const configuredBusinessId = String(env.ULTIMATE_ESTHETICS_BUSINESS_ID || "");
-  const connectorUrl = String(env.ULTIMATE_ESTHETICS_CONNECTOR_URL || "");
-  const connectorToken = String(env.ULTIMATE_ESTHETICS_CONNECTOR_TOKEN || "");
-  if (!configuredBusinessId || businessId !== configuredBusinessId || !connectorUrl || connectorToken.length < 32) return null;
+function decodeBase64Url(value) {
+  const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
+  const binary = atob(padded);
+  return Uint8Array.from(binary, char => char.charCodeAt(0));
+}
 
-  let target;
-  try { target = new URL(connectorUrl); } catch { throw new Error("Ultimate Esthetics connector URL is invalid."); }
-  if (target.protocol !== "https:" || target.username || target.password) throw new Error("Ultimate Esthetics connector must use a public HTTPS URL.");
+async function verifyClinicAssertion(token, secret) {
+  const parts = String(token || "").split(".");
+  if (parts.length !== 3 || parts.some(part => !part) || secret.length < 32) throw new Error("Invalid clinic assertion.");
+  let header, claims;
+  try {
+    header = JSON.parse(new TextDecoder().decode(decodeBase64Url(parts[0])));
+    claims = JSON.parse(new TextDecoder().decode(decodeBase64Url(parts[1])));
+  } catch { throw new Error("Invalid clinic assertion payload."); }
+  if (header?.alg !== "HS256" || header?.typ !== "JWT") throw new Error("Unsupported clinic assertion.");
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+  const valid = await crypto.subtle.verify("HMAC", key, decodeBase64Url(parts[2]), new TextEncoder().encode(parts[0] + "." + parts[1]));
+  if (!valid) throw new Error("Invalid clinic assertion signature.");
+  const now = Math.floor(Date.now() / 1000);
+  if (claims.iss !== "ultimate-esthetics-clinic" || claims.aud !== "creative-clan-ai-agent" ||
+      claims.role !== "admin" || claims.scope !== "clinic:summary:read" || !claims.sub ||
+      !/^[0-9a-fA-F-]{36}$/.test(String(claims.business_id || "")) ||
+      !/^[0-9a-fA-F-]{36}$/.test(String(claims.jti || "")) ||
+      !Number.isInteger(claims.iat) || !Number.isInteger(claims.exp) ||
+      claims.iat > now + 15 || claims.exp <= now || claims.exp - claims.iat > 60) {
+    throw new Error("Clinic assertion is expired or not authorized for this scope.");
+  }
+  let origin;
+  try { origin = new URL(String(claims.origin || "")); } catch { throw new Error("Clinic origin is invalid."); }
+  if (origin.protocol !== "https:" || !(origin.hostname === "ultimate-esthetics-demo.pages.dev" || origin.hostname.endsWith(".ultimate-esthetics-demo.pages.dev"))) {
+    throw new Error("Clinic origin is not an approved Preview host.");
+  }
+  return claims;
+}
 
-  const upstream = await fetch(target.toString(), {
+async function loadUltimateEstheticsSummary(env, token, claims) {
+  const base = String(env.SUPABASE_URL || "").replace(/\/$/, "");
+  const serviceKey = String(env.SUPABASE_SERVICE_ROLE_KEY || "");
+  if (!base || serviceKey.length < 32) throw new Error("Secure clinic authorization service is not configured.");
+  const headers = { apikey: serviceKey, authorization: "Bearer " + serviceKey, "content-type": "application/json" };
+
+  const businessUrl = new URL(base + "/rest/v1/authorized_businesses");
+  businessUrl.searchParams.set("id", "eq." + claims.business_id);
+  businessUrl.searchParams.set("status", "eq.active");
+  businessUrl.searchParams.set("select", "id,access_request_id");
+  const businessResponse = await fetch(businessUrl, { headers });
+  if (!businessResponse.ok) throw new Error("Could not verify the approved clinic business.");
+  const businesses = await businessResponse.json();
+  const business = Array.isArray(businesses) ? businesses[0] : null;
+  if (!business?.id || !business.access_request_id) throw new Error("Clinic business is not active in Super Admin.");
+
+  const requestUrl = new URL(base + "/rest/v1/access_requests");
+  requestUrl.searchParams.set("id", "eq." + business.access_request_id);
+  requestUrl.searchParams.set("status", "eq.approved");
+  requestUrl.searchParams.set("select", "id,requested_capabilities");
+  const requestResponse = await fetch(requestUrl, { headers });
+  if (!requestResponse.ok) throw new Error("Could not verify Super Admin approval.");
+  const requests = await requestResponse.json();
+  const approved = Array.isArray(requests) ? requests[0] : null;
+  if (!approved || !Array.isArray(approved.requested_capabilities) || !approved.requested_capabilities.includes("read_only_business_summary")) {
+    throw new Error("Super Admin has not approved the clinic summary permission.");
+  }
+
+  const summaryUrl = new URL("/api/agent/summary", claims.origin);
+  const upstream = await fetch(summaryUrl, {
     method: "POST",
     redirect: "manual",
-    headers: {
-      authorization: "Bearer " + connectorToken,
-      "content-type": "application/json",
-      accept: "application/json"
-    },
+    headers: { authorization: "Bearer " + token, "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({ action: "today_summary" })
   });
-  if (!upstream.ok) throw new Error("Ultimate Esthetics read-only connector returned HTTP " + upstream.status + ".");
+  if (!upstream.ok) throw new Error("Clinic read-only connector returned HTTP " + upstream.status + ".");
   const raw = await upstream.text();
-  if (raw.length > 8192) throw new Error("Ultimate Esthetics connector response exceeded the allowed size.");
+  if (raw.length > 8192) throw new Error("Clinic connector response exceeded the allowed size.");
   let payload;
-  try { payload = JSON.parse(raw); } catch { throw new Error("Ultimate Esthetics connector returned invalid JSON."); }
-  if (!payload?.ok || !payload?.data || payload.data.data_scope !== "aggregate_only") {
-    throw new Error("Ultimate Esthetics connector did not return an approved aggregate-only summary.");
+  try { payload = JSON.parse(raw); } catch { throw new Error("Clinic connector returned invalid JSON."); }
+  if (!payload?.ok || !payload?.data || payload.data.data_scope !== "aggregate_only" ||
+      payload.data.patient_identifiers_included !== false || payload.data.clinical_information_included !== false) {
+    throw new Error("Clinic connector did not return the approved aggregate-only data scope.");
   }
+
+  const now = new Date().toISOString();
+  const connectionUrl = new URL(base + "/rest/v1/platform_connections");
+  connectionUrl.searchParams.set("on_conflict", "business_id,platform,external_account_ref");
+  const connectionResponse = await fetch(connectionUrl, {
+    method: "POST",
+    headers: { ...headers, prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({
+      business_id: business.id,
+      platform: "custom",
+      external_account_ref: "ultimate-esthetics-clinic",
+      connection_status: "active",
+      granted_scopes: ["read_only_business_summary"],
+      connected_at: now,
+      last_verified_at: now,
+      revoked_at: null,
+      connection_metadata: {
+        source: "short_lived_hmac_assertion",
+        preview_origin: claims.origin,
+        data_scope: "aggregate_only",
+        patient_identifiers_included: false,
+        clinical_information_included: false
+      },
+      updated_at: now
+    })
+  });
+  if (!connectionResponse.ok) throw new Error("Clinic verified, but the Super Admin connection record could not be updated.");
   return payload.data;
 }
 
@@ -151,7 +236,7 @@ export default {
           status: "/v1/status",
           admin_verify: "/v1/admin/verify",
           admin_console: "/v1/admin/console",
-          admin_panel_scan: "/v1/admin/panel-scan",
+          admin_panel_scan: "/v1/admin/panel-scan",\n          clinic_summary: "/v1/clinic/summary",
           access_requests: "/v1/access-requests"
         }
       }, 200, requestId, origin);
@@ -258,6 +343,34 @@ export default {
           }
         } catch (error) {
           response = json({ ok: false, error: error instanceof Error ? error.message : "Compatibility scan failed.", request_id: requestId }, 400, requestId, origin);
+        }
+      }
+    } else if (request.method === "POST" && url.pathname === "/v1/clinic/summary") {
+      const authorization = request.headers.get("Authorization") || "";
+      const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+      if (!token) {
+        response = json({ ok: false, error: "Unauthorized", request_id: requestId }, 401, requestId, origin);
+      } else if (!env.CLINIC_BRIDGE_HMAC_SECRET || !env.SUPABASE_SERVICE_ROLE_KEY || !env.SUPABASE_URL) {
+        response = json({ ok: false, error: "Preview clinic bridge is not configured", request_id: requestId }, 503, requestId, origin);
+      } else {
+        try {
+          const raw = await request.arrayBuffer();
+          if (raw.byteLength > 2048) throw new Error("Clinic bridge request is too large.");
+          const body = JSON.parse(new TextDecoder().decode(raw) || "{}");
+          if (body.action !== "verify_connection") throw new Error("Unsupported clinic bridge action.");
+          const claims = await verifyClinicAssertion(token, String(env.CLINIC_BRIDGE_HMAC_SECRET));
+          const summary = await loadUltimateEstheticsSummary(env, token, claims);
+          response = json({
+            ok: true,
+            data: {
+              business_id: claims.business_id,
+              connection_status: "active",
+              verified_at: new Date().toISOString(),
+              summary
+            }
+          }, 200, requestId, origin);
+        } catch (error) {
+          response = json({ ok: false, error: error instanceof Error ? error.message : "Clinic bridge verification failed", request_id: requestId }, 403, requestId, origin);
         }
       }
     } else if (request.method === "POST" && url.pathname === "/v1/agent/command") {
