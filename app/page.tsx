@@ -50,6 +50,9 @@ export default function Home(){
  const [brandingFaviconFile,setBrandingFaviconFile]=useState<File|null>(null);
  const [brandingBusy,setBrandingBusy]=useState(false);
  const [brandingMessage,setBrandingMessage]=useState("");
+ const [moduleForm,setModuleForm]=useState<Record<string,string>>({});
+ const [moduleBusy,setModuleBusy]=useState(false);
+ const [notifyPrefs,setNotifyPrefs]=useState({access_request_email:true,security_alert_email:true,task_completion_email:true,weekly_summary_email:false});
  const loginLogoUrl=branding.login_logo_url||"/creative-clan-logo-transparent.svg";
  const faviconUrl=branding.favicon_url||"/favicon.svg";
 
@@ -69,7 +72,7 @@ export default function Home(){
    try{const d=await action("overview");setCounts(d.counts);}catch(e){setDataError(e instanceof Error?e.message:"Overview failed.");}
  },[action]);
  const loadSection=useCallback(async(section:Section)=>{
-   const map:Partial<Record<Section,string>>={requests:"requests",businesses:"businesses",connections:"connections",tasks:"tasks",security:"audit",automations:"automations",credits:"credits"};
+   const map:Partial<Record<Section,string>>={requests:"requests",businesses:"businesses",connections:"connections",tasks:"tasks",security:"audit",automations:"automations",credits:"credits",payments:"invoices",support:"support_tickets",team:"team",notifications:"notifications"};
    if(!map[section]){setRows([]);return;}
    setDataBusy(true);setDataError("");
    try{
@@ -174,6 +177,12 @@ export default function Home(){
    catch(e){setAuthError(e instanceof Error?e.message:"Could not update password.");}
    finally{setBusy(false);}
  }
+ async function submitModule(actionName:string,payload:RowData,refresh:Section){
+   setModuleBusy(true);setDataError("");
+   try{await action(actionName,payload);setModuleForm({});await loadSection(refresh);await loadOverview();}
+   catch(e){setDataError(e instanceof Error?e.message:"Action failed.");}
+   finally{setModuleBusy(false);}
+ }
  async function review(id:string,decision:"approve"|"decline"){
    setReviewing(id);setDataError("");
    try{await action("review_request",{id,decision,notes:notes[id]||""});await Promise.all([loadSection("requests"),loadOverview()]);}
@@ -182,7 +191,7 @@ export default function Home(){
  const current=sections.find(s=>s.id===active)!;
  const fmt=(v:unknown)=>v===null||v===undefined||v===""?"—":String(v);
  const date=(v:string)=>v?new Date(v).toLocaleString():"—";
- const live=["requests","businesses","connections","tasks","security","automations","credits"].includes(active);
+ const live=["requests","businesses","connections","tasks","security","automations","credits","payments","support","team","notifications"].includes(active);
 
  function renderRows(){
    if(dataBusy)return <section className="empty-panel"><h2>Loading records…</h2></section>;
@@ -233,7 +242,36 @@ export default function Home(){
     </>:<>
      <div className="page-heading"><div><p className="eyebrow">{live?"LIVE ADMIN DATA":"AGENT CONFIGURATION"}</p><h1>{titles[active]||placeholders[active]?.title}</h1><p className="subheading">{active==="requests"?"Review business requests and approve or decline access.":active==="businesses"?"Internal records of approved businesses. No client portal or login is created.":active==="connections"?"Paste an Admin Panel URL to inspect public compatibility signals and get a recommended connection route.":active==="tasks"?"Review internal task history and execution states.":active==="security"?"Internal administrator actions and audit trail.":active==="automations"?"Review automation definitions stored in the control plane. Execution remains disabled until the agent runtime is configured.":placeholders[active]?.description}</p></div><span className="date-label">PRIVATE ADMIN AREA</span></div>
      {dataError&&<p className="data-error">{dataError}</p>}
-     {active==="connections" ? <>
+     {active==="tasks" ? <section className="panel data-panel">
+       <div className="panel-heading"><div><h2>Create agent task</h2><p>Queue an instruction for the agent. Queued work is not executed until an approved runtime is connected.</p></div></div>
+       <div className="credit-controls"><label>Task instruction<textarea value={moduleForm.instruction||""} onChange={e=>setModuleForm(v=>({...v,instruction:e.target.value}))} placeholder="Describe the task for the agent" rows={4}/></label><button className="primary-action" disabled={moduleBusy||!(moduleForm.instruction||"").trim()} onClick={()=>void submitModule("create_task",{instruction:moduleForm.instruction}, "tasks")}>{moduleBusy?"Saving…":"Queue task"}</button></div>
+       <div className="panel-heading"><div><h2>Task history</h2><p>Saved requests and completed AI analysis</p></div><button className="small-action" onClick={()=>void loadSection("tasks")}>Refresh</button></div>{renderRows()}
+      </section> : active==="automations" ? <section className="panel data-panel">
+       <div className="panel-heading"><div><h2>Create automation</h2><p>New automations are saved disabled and approval-protected. Execution requires a connected runtime.</p></div></div>
+       <div className="credit-controls"><label>Approved business ID<input value={moduleForm.business_id||""} onChange={e=>setModuleForm(v=>({...v,business_id:e.target.value}))} placeholder="Business UUID"/></label><label>Automation name<input value={moduleForm.name||""} onChange={e=>setModuleForm(v=>({...v,name:e.target.value}))} placeholder="e.g. Low stock alert"/></label><label>Trigger<select value={moduleForm.trigger_type||"manual"} onChange={e=>setModuleForm(v=>({...v,trigger_type:e.target.value}))}><option value="manual">Manual</option><option value="schedule">Schedule</option><option value="order_created">Order created</option><option value="inventory_low">Low inventory</option></select></label><button className="primary-action" disabled={moduleBusy||!(moduleForm.name||"").trim()||!(moduleForm.business_id||"").trim()} onClick={()=>void submitModule("create_automation",{business_id:moduleForm.business_id,name:moduleForm.name,trigger_type:moduleForm.trigger_type||"manual",description:"Created from admin console"}, "automations")}>Save automation</button></div>
+       <div className="panel-heading"><div><h2>Saved automations</h2><p>Enable/disable definitions; runtime is not yet connected</p></div><button className="small-action" onClick={()=>void loadSection("automations")}>Refresh</button></div>
+       <div className="record-list">{rows.map(row=><article className="request-record" key={row.id}><div className="record-top"><div><h3>{row.name}</h3><p>{row.trigger_type} · {row.description||"No description"}</p></div><span className={"status-pill "+(row.is_enabled?"active":"pending")}>{row.is_enabled?"Enabled":"Disabled"}</span></div><div className="review-controls"><button onClick={()=>void submitModule("update_automation",{id:row.id,is_enabled:!row.is_enabled},"automations")}>{row.is_enabled?"Disable":"Enable"}</button></div></article>)}</div>
+      </section> : active==="support" ? <section className="panel data-panel">
+       <div className="panel-heading"><div><h2>Open support ticket</h2><p>Create and track internal onboarding or support work</p></div></div>
+       <div className="credit-controls"><label>Subject<input value={moduleForm.subject||""} onChange={e=>setModuleForm(v=>({...v,subject:e.target.value}))} placeholder="Issue or onboarding request"/></label><label>Priority<select value={moduleForm.priority||"normal"} onChange={e=>setModuleForm(v=>({...v,priority:e.target.value}))}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label>Details<textarea rows={3} value={moduleForm.message||""} onChange={e=>setModuleForm(v=>({...v,message:e.target.value}))}/></label><button className="primary-action" disabled={moduleBusy||!(moduleForm.subject||"").trim()||!(moduleForm.message||"").trim()} onClick={()=>void submitModule("create_support_ticket",{subject:moduleForm.subject,message:moduleForm.message,priority:moduleForm.priority||"normal"},"support")}>Create ticket</button></div>
+       <div className="panel-heading"><div><h2>Support queue</h2></div><button className="small-action" onClick={()=>void loadSection("support")}>Refresh</button></div>
+       <div className="record-list">{rows.map(row=><article className="request-record" key={row.id}><div className="record-top"><div><h3>{row.subject}</h3><p>{row.priority} priority · {date(row.created_at)}</p></div><span className={"status-pill "+row.status}>{row.status}</span></div><p>{row.message}</p><div className="review-controls"><select value={row.status} onChange={e=>void submitModule("update_support_ticket",{id:row.id,status:e.target.value},"support")}><option value="open">Open</option><option value="in_progress">In progress</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select></div></article>)}</div>
+      </section> : active==="payments" ? <section className="panel data-panel">
+       <div className="panel-heading"><div><h2>Create invoice</h2><p>Internal invoice records only; this does not collect payments or connect a payment gateway.</p></div></div>
+       <div className="credit-controls"><label>Invoice number<input value={moduleForm.invoice_number||""} onChange={e=>setModuleForm(v=>({...v,invoice_number:e.target.value}))}/></label><label>Description<input value={moduleForm.description||""} onChange={e=>setModuleForm(v=>({...v,description:e.target.value}))}/></label><label>Amount (PKR)<input type="number" min="0" value={moduleForm.amount||""} onChange={e=>setModuleForm(v=>({...v,amount:e.target.value}))}/></label><label>Due date<input type="date" value={moduleForm.due_date||""} onChange={e=>setModuleForm(v=>({...v,due_date:e.target.value}))}/></label><button className="primary-action" disabled={moduleBusy||!(moduleForm.invoice_number||"").trim()||!(moduleForm.description||"").trim()||!moduleForm.amount} onClick={()=>void submitModule("create_invoice",{invoice_number:moduleForm.invoice_number,description:moduleForm.description,amount:Number(moduleForm.amount),due_date:moduleForm.due_date||null,currency:"PKR"},"payments")}>Save invoice</button></div>
+       <div className="panel-heading"><div><h2>Invoices</h2></div><button className="small-action" onClick={()=>void loadSection("payments")}>Refresh</button></div>
+       <div className="record-list">{rows.map(row=><article className="request-record" key={row.id}><div className="record-top"><div><h3>{row.invoice_number}</h3><p>{row.description} · PKR {Number(row.amount).toLocaleString()}</p></div><span className={"status-pill "+row.status}>{row.status}</span></div><div className="review-controls"><select value={row.status} onChange={e=>void submitModule("update_invoice",{id:row.id,status:e.target.value},"payments")}><option value="draft">Draft</option><option value="issued">Issued</option><option value="paid">Paid</option><option value="overdue">Overdue</option><option value="void">Void</option></select></div></article>)}</div>
+      </section> : active==="team" ? <section className="panel data-panel">
+       <div className="panel-heading"><div><h2>Invite administrator</h2><p>Invitations send an email. Only Admin and Operator roles can be invited here.</p></div></div>
+       <div className="credit-controls"><label>Email<input type="email" value={moduleForm.email||""} onChange={e=>setModuleForm(v=>({...v,email:e.target.value}))} placeholder="team@example.com"/></label><label>Role<select value={moduleForm.role||"operator"} onChange={e=>setModuleForm(v=>({...v,role:e.target.value}))}><option value="operator">Operator</option><option value="admin">Admin</option></select></label><button className="primary-action" disabled={moduleBusy||!(moduleForm.email||"").trim()} onClick={()=>void submitModule("invite_team_member",{email:moduleForm.email,role:moduleForm.role||"operator"},"team")}>Send invitation</button></div>
+       <div className="panel-heading"><div><h2>Team access</h2><p>Owner access cannot be disabled from this screen</p></div><button className="small-action" onClick={()=>void loadSection("team")}>Refresh</button></div>
+       <div className="record-list">{rows.map(row=><article className="request-record" key={row.id}><div className="record-top"><div><h3>{row.email}</h3><p>{row.role} · Added {date(row.created_at)}</p></div><span className={"status-pill "+(row.is_active?"active":"revoked")}>{row.is_active?"Active":"Disabled"}</span></div>{row.role!=="owner"&&<div className="review-controls"><select value={row.role} onChange={e=>void submitModule("update_team_member",{id:row.id,role:e.target.value,is_active:row.is_active},"team")}><option value="operator">Operator</option><option value="admin">Admin</option></select><button className="danger-action" onClick={()=>void submitModule("update_team_member",{id:row.id,role:row.role,is_active:!row.is_active},"team")}>{row.is_active?"Disable":"Enable"}</button></div>}</article>)}</div>
+      </section> : active==="notifications" ? <section className="panel data-panel">
+       <div className="panel-heading"><div><h2>Notification preferences</h2><p>Save which alert categories should be enabled. Email delivery requires a mail provider.</p></div><button className="small-action" onClick={()=>void loadSection("notifications")}>Refresh</button></div>
+       <div className="record-list">{Object.entries({access_request_email:"Access request alerts",security_alert_email:"Security alerts",task_completion_email:"Task completion alerts",weekly_summary_email:"Weekly summary"}).map(([key,label])=><label className="review-controls" key={key}><input type="checkbox" checked={Boolean((notifyPrefs as any)[key])} onChange={e=>setNotifyPrefs(v=>({...v,[key]:e.target.checked}))}/>{label}</label>)}</div>
+       <button className="primary-action" onClick={()=>void submitModule("save_notification_settings",notifyPrefs,"notifications")}>Save preferences</button>
+       <div className="panel-heading"><h2>Recent notifications</h2></div><div className="record-list">{rows.map(row=><article className="request-record" key={row.id}><h3>{row.title}</h3><p>{row.message}</p><small>{date(row.created_at)}</small>{!row.is_read&&<button onClick={()=>void submitModule("mark_notification_read",{id:row.id},"notifications")}>Mark read</button>}</article>)}</div>
+      </section> : active==="connections" ? <>
       <section className="panel scanner-panel">
        <div className="scanner-intro">
         <div><span className="panel-kicker">ADMIN PANEL COMPATIBILITY</span><h2>Check a client's existing Admin Panel</h2><p>Paste the Admin Panel URL. The scanner checks public technical signals and recommends the next connection route.</p></div>
@@ -258,7 +296,7 @@ export default function Home(){
       </section>
       {scanHistory.length>0&&<section className="panel scan-history-panel"><div className="panel-heading"><div><h2>Recent compatibility scans</h2><p>Private scan history for this admin account</p></div><button className="small-action" onClick={()=>void loadSection("connections")}>Refresh</button></div><div className="scan-history-list">{scanHistory.map(item=><article key={item.id}><div><b>{item.normalized_url}</b><small>{date(item.created_at)} · {String(item.confidence||"low").toUpperCase()} confidence</small></div><span className="status-pill active">{item.recommended_method==="api"?"API candidate":item.recommended_method==="secure_browser"?"Browser inspection":"Manual review"}</span></article>)}</div></section>}
       <section className="panel data-panel"><div className="panel-heading"><div><h2>Existing authorized connections</h2><p>Previously authorized integrations. A scan alone never marks a website as connected.</p></div><button className="small-action" onClick={()=>void loadSection("connections")}>Refresh</button></div>{renderRows()}</section>
-     </> : active==="tasks" ? renderRows() : live ? renderRows() : active==="settings" ? <>
+     </> : live ? renderRows() : active==="settings" ? <>
       <section className="panel data-panel branding-panel">
        <div className="panel-heading"><div><span className="panel-kicker">BRAND IDENTITY</span><h2>Branding & appearance</h2><p>Customize the logo shown on your login screen and the icon shown in browser tabs.</p></div><span className="status-pill active">OWNER CONTROL</span></div>
        <div className="branding-grid">
