@@ -237,7 +237,8 @@ export default {
           status: "/v1/status",
           admin_verify: "/v1/admin/verify",
           admin_console: "/v1/admin/console",
-          admin_panel_scan: "/v1/admin/panel-scan",\n          clinic_summary: "/v1/clinic/summary",
+          admin_panel_scan: "/v1/admin/panel-scan",
+          clinic_summary: "/v1/clinic/summary",
           access_requests: "/v1/access-requests"
         }
       }, 200, requestId, origin);
