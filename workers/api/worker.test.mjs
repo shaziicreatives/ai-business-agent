@@ -280,12 +280,12 @@ test("admin panel scanner performs unauthenticated GET-only inspection and store
 });
 
 
-test("AI command loads only aggregate Ultimate Esthetics data for its approved business", async () => {
+test("Clinic data is not fetched through the Super Admin JWT command route", async () => {
   const originalFetch = globalThis.fetch;
   const originalRun = env.AI.run;
-  const calls = [];
   const businessId = "11111111-1111-4111-8111-111111111111";
-  let modelMessages;
+  const calls = [];
+  let modelMessages = [];
   const connectorEnv = {
     ...env,
     ULTIMATE_ESTHETICS_BUSINESS_ID: businessId,
@@ -294,7 +294,7 @@ test("AI command loads only aggregate Ultimate Esthetics data for its approved b
     AI: {
       run: async (_model, input) => {
         modelMessages = input.messages;
-        return { response: "There are 8 appointments today.", usage: { prompt_tokens: 90, completion_tokens: 18 } };
+        return { response: "I can discuss the approved website structure.", usage: { prompt_tokens: 90, completion_tokens: 18 } };
       }
     }
   };
@@ -310,36 +310,20 @@ test("AI command loads only aggregate Ultimate Esthetics data for its approved b
       }), { status: 200 });
       return new Response(JSON.stringify({ ok: true, data: { id: "task-clinic-1" } }), { status: 200 });
     }
-    if (target === "https://clinic.example/api/agent/summary") {
-      assert.equal(init.method, "POST");
-      assert.equal(init.redirect, "manual");
-      assert.equal(init.headers.authorization, "Bearer " + "x".repeat(64));
-      return new Response(JSON.stringify({
-        ok: true,
-        data: {
-          clinic: "Ultimate Esthetics", date: "2026-11-27", timezone: "Asia/Karachi",
-          total_appointments: 8, checked_in: 2,
-          by_status: { confirmed: 5, pending: 2, done: 1 },
-          data_scope: "aggregate_only", patient_identifiers_included: false,
-          clinical_information_included: false
-        }
-      }), { status: 200 });
-    }
     throw new Error("Unexpected upstream request: " + target);
   };
   try {
     const response = await worker.fetch(new Request("https://api.example/v1/agent/command", {
       method: "POST",
       headers: { Origin: ADMIN_ORIGIN, Authorization: "Bearer test-user-jwt", "Content-Type": "application/json" },
-      body: JSON.stringify({ instruction: "How many appointments are there today?", business_id: businessId })
+      body: JSON.stringify({ instruction: "Explain the clinic website navigation.", business_id: businessId })
     }), connectorEnv);
     const data = await response.json();
     assert.equal(response.status, 200);
-    assert.equal(data.data.response, "There are 8 appointments today.");
-    assert.match(modelMessages[0].content, /APPROVED ULTIMATE ESTHETICS CLINIC SUMMARY/);
-    assert.match(modelMessages[0].content, /"total_appointments":8/);
-    assert.match(modelMessages[0].content, /never provide medical advice/i);
-    assert.equal(calls.filter(call => call.url === "https://clinic.example/api/agent/summary").length, 1);
+    assert.equal(data.data.response, "I can discuss the approved website structure.");
+    assert.match(modelMessages[0].content, /APPROVED CLIENT WEBSITE CONTEXT/);
+    assert.doesNotMatch(modelMessages[0].content, /APPROVED ULTIMATE ESTHETICS CLINIC SUMMARY/);
+    assert.equal(calls.some(call => call.url.includes("/api/agent/summary")), false);
   } finally {
     globalThis.fetch = originalFetch;
     env.AI.run = originalRun;
