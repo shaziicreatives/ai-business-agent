@@ -180,3 +180,20 @@ html,body{background:#f3f6fc;color:#102344}
 .auth-logo{background:transparent;border-radius:0;object-fit:contain}
 .sidebar-logo{width:36px;height:36px;aspect-ratio:1;border-radius:50%;object-fit:cover;background:transparent;overflow:hidden}
 @media(max-width:650px){.scanner-form{grid-template-columns:1fr}.scanner-form .primary-action{width:100%}.scan-metrics{grid-template-columns:1fr}.scan-history-list article{align-items:flex-start;flex-direction:column}.scanner-panel{padding:16px}}
+
+
+/* Owner-managed login logo and browser favicon settings */
+.branding-panel{padding:22px;margin-top:4px}
+.branding-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding:4px 18px 18px}
+.branding-card{border:1px solid #e5ebf3;border-radius:12px;padding:16px;background:#fbfcfe;display:flex;flex-direction:column;gap:12px}
+.branding-card h3{font-size:13px;color:#1b385e;margin:0 0 5px}
+.branding-card p{font-size:10px;line-height:1.5;color:#8190a5;margin:0}
+.branding-preview{height:124px;border:1px dashed #d7e1ee;border-radius:9px;background:linear-gradient(135deg,#f5f8fc,#fff);display:grid;place-items:center;padding:14px}
+.branding-preview img{max-width:100%;max-height:92px;object-fit:contain}
+.favicon-brand-preview img{width:56px;height:56px;object-fit:contain}
+.branding-upload{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:0 13px;border:1px solid #d9e5f3;border-radius:8px;background:#fff;color:#2869bd;font-size:10px;font-weight:700;cursor:pointer}
+.branding-upload input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.branding-actions{display:flex;align-items:center;gap:13px;flex-wrap:wrap;padding:0 18px 16px}
+.branding-actions span{font-size:9px;line-height:1.5;color:#75869d}
+.branding-actions .primary-action:disabled{opacity:.5;cursor:not-allowed}
+@media(max-width:650px){.branding-grid{grid-template-columns:1fr;padding-left:12px;padding-right:12px}.branding-panel{padding:15px}.branding-actions{padding-left:12px;padding-right:12px}.branding-actions .primary-action{width:100%}}
