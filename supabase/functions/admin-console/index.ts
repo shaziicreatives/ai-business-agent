@@ -418,6 +418,73 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, data, message: "Authenticated read-only inspection saved. No forms submitted and no buttons clicked." });
     }
 
+    if (action === "save_website_map") {
+      const scanId = String(body.scan_id || "");
+      const input = body.website_map && typeof body.website_map === "object" ? body.website_map : null;
+      if (!/^[0-9a-fA-F-]{36}$/.test(scanId) || !input) {
+        return json({ error: "A valid scan and website map are required." }, 400);
+      }
+      const { data: existing, error: readError } = await admin.from("admin_panel_scans")
+        .select("id,created_by,scan_report").eq("id", scanId).eq("created_by", actor).single();
+      if (readError || !existing) return json({ error: "Scan report not found for this admin account." }, 404);
+      const safeMap = {
+        version: 1,
+        generated_at: typeof input.generated_at === "string" ? input.generated_at.slice(0, 40) : new Date().toISOString(),
+        source: "authenticated_read_only_inspection",
+        page_title: typeof input.page_title === "string" ? input.page_title.slice(0, 200) : null,
+        page_url: typeof input.page_url === "string" ? input.page_url.slice(0, 2048) : null,
+        sections: Array.isArray(input.sections) ? input.sections.slice(0, 30).map((x: any) => ({
+          name: typeof x?.name === "string" ? x.name.slice(0, 120) : "",
+          verified: false
+        })) : [],
+        navigation: Array.isArray(input.navigation) ? input.navigation.slice(0, 80).map((x: any) => ({
+          label: typeof x?.label === "string" ? x.label.slice(0, 120) : "",
+          href: typeof x?.href === "string" ? x.href.slice(0, 2048) : "",
+          category: typeof x?.category === "string" ? x.category.slice(0, 60) : "unclassified",
+          verified: false
+        })) : [],
+        buttons: Array.isArray(input.buttons) ? input.buttons.slice(0, 60).map((x: any) => ({
+          label: typeof x?.label === "string" ? x.label.slice(0, 120) : "Unlabelled button",
+          category: typeof x?.category === "string" ? x.category.slice(0, 60) : "unclassified",
+          element_type: typeof x?.element_type === "string" ? x.element_type.slice(0, 30) : "button",
+          verified: false,
+          status: "function_not_yet_verified"
+        })) : [],
+        forms: Array.isArray(input.forms) ? input.forms.slice(0, 20).map((x: any, i: number) => ({
+          index: Number.isInteger(x?.index) ? x.index : i + 1,
+          method: typeof x?.method === "string" ? x.method.slice(0, 20) : "unknown",
+          field_count: Number.isFinite(Number(x?.field_count)) ? Number(x.field_count) : null,
+          verified: false,
+          values_collected: false
+        })) : [],
+        limitations: [
+          "This map describes visible page structure only.",
+          "Button functions and destination behavior have not been tested.",
+          "No buttons were clicked, no forms were submitted, and no field values were collected."
+        ],
+        readiness: "structure_mapped_actions_unverified"
+      };
+      const prior = existing.scan_report && typeof existing.scan_report === "object" ? existing.scan_report : {};
+      const merged = { ...prior, website_map: safeMap };
+      const { data, error } = await admin.from("admin_panel_scans").update({ scan_report: merged })
+        .eq("id", scanId).eq("created_by", actor)
+        .select("id,normalized_url,scan_report,updated_at").single();
+      if (error) throw error;
+      const { error: auditError } = await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, action: "admin_panel_website_map_saved",
+        resource_type: "admin_panel_scan", resource_id: scanId, outcome: "success",
+        details: {
+          sections_count: safeMap.sections.length,
+          navigation_count: safeMap.navigation.length,
+          buttons_count: safeMap.buttons.length,
+          forms_count: safeMap.forms.length,
+          actions_verified: false
+        }
+      });
+      if (auditError) throw auditError;
+      return json({ ok: true, data, message: "Website structure map saved. Button functions remain unverified." });
+    }
+
     if (action === "invoices") {
       const [invoiceResult, businessResult] = await Promise.all([
         admin.from("admin_invoices").select("*").order("created_at", { ascending: false }).limit(100),
