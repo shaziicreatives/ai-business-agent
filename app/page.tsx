@@ -77,7 +77,7 @@ export default function Home(){
    setDataBusy(true);setDataError("");
    try{
      const d=await action(map[section]!);setRows(d.data||[]);
-     if(section==="connections"){const history=await action("panel_scans");setScanHistory(history.data||[]);}
+     if(section==="connections"){const history=await action("panel_scans");setScanHistory(history.data||[]);} if(section==="notifications"){const prefs=await action("notification_settings");setNotifyPrefs(prefs.data);}
    }catch(e){setRows([]);setDataError(e instanceof Error?e.message:"Could not load records.");}
    finally{setDataBusy(false);}
  },[action]);
