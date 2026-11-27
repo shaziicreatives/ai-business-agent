@@ -132,3 +132,51 @@ html,body{background:#f3f6fc;color:#102344}
 .guide-callout b{font-size:10px;color:#244b79}
 .guide-callout p{font-size:9px;line-height:1.65;color:#657b96;margin-top:5px}
 @media(max-width:650px){.connection-steps{grid-template-columns:1fr}.connection-guide{padding:14px}}
+
+/* Admin Panel Compatibility Scanner */
+.scanner-panel{padding:22px;margin-top:4px}
+.scanner-intro{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}
+.scanner-intro h2{font:800 18px Manrope;color:#142e53;margin:5px 0 7px}
+.scanner-intro p{font-size:11px;line-height:1.65;color:#8290a8;margin:0;max-width:680px}
+.scanner-mark{width:44px;height:44px;display:grid;place-items:center;border-radius:13px;background:#eaf2ff;color:#2563eb;font-size:30px;flex-shrink:0}
+.scanner-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end;margin-top:22px}
+.scanner-form label{display:grid;gap:7px;font-size:10px;font-weight:700;color:#526681}
+.scanner-form input{width:100%;height:43px;border:1px solid #dfe7f1;border-radius:7px;padding:0 12px;font:11px 'DM Sans';color:#17365f;outline:none}
+.scanner-form input:focus{border-color:#1689f5;box-shadow:0 0 0 3px #1689f51a}
+.scanner-form .primary-action{height:43px;white-space:nowrap;padding:0 18px}
+.scanner-form .primary-action:disabled{opacity:.55;cursor:wait}
+.scanner-safety{margin-top:15px;padding:12px 14px;background:#f5f8fd;border:1px solid #e8eef7;border-radius:8px}
+.scanner-safety>span{font-size:8px;font-weight:800;letter-spacing:1px;color:#2770c9}
+.scanner-safety p{font-size:9px;line-height:1.65;color:#74859f;margin:5px 0 0}
+.scan-result{border:1px solid #dfe9f7;background:#fbfdff;border-radius:10px;padding:17px;margin-top:18px}
+.scan-result-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.scan-result-heading h3{font:700 14px Manrope;color:#142e53;margin:5px 0}
+.scan-result-heading p{font-size:9px;color:#8290a8;margin:0;line-height:1.5}
+.scan-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:15px}
+.scan-metrics>div{background:#fff;border:1px solid #e8eef7;border-radius:7px;padding:11px}
+.scan-metrics small,.scan-metrics b{display:block}
+.scan-metrics small{font-size:8px;color:#91a0b4;margin-bottom:5px}
+.scan-metrics b{font-size:10px;color:#17365f;line-height:1.45}
+.scan-findings,.scan-recommendations{margin-top:16px}
+.scan-findings>b,.scan-recommendations>b{font-size:10px;color:#304967}
+.scan-findings>div{display:flex;align-items:flex-start;gap:9px;padding:9px 0;border-bottom:1px solid #edf1f6}
+.scan-findings>div:last-child{border-bottom:0}
+.scan-findings strong,.scan-findings small{display:block}
+.scan-findings strong{font-size:9px;color:#405675}
+.scan-findings small{font-size:9px;line-height:1.55;color:#8795aa;margin-top:3px}
+.finding-dot{width:7px;height:7px;border-radius:50%;background:#93a4bb;flex-shrink:0;margin-top:4px}
+.finding-dot.pass,.finding-dot.detected{background:#269a67}
+.finding-dot.required,.finding-dot.limited{background:#d59b35}
+.finding-dot.not_tested,.finding-dot.not_found{background:#94a3b8}
+.scan-recommendations ul{padding-left:17px;margin:8px 0 0}
+.scan-recommendations li{font-size:9px;line-height:1.65;color:#64758e;margin:4px 0}
+.scan-disclaimer{font-size:9px;line-height:1.6;color:#8b6b31;background:#fff9ec;border:1px solid #f2e8cf;border-radius:7px;padding:10px;margin:14px 0 0}
+.scan-history-panel{margin-top:14px}
+.scan-history-list{display:grid;gap:0;margin-top:12px}
+.scan-history-list article{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid #edf1f6}
+.scan-history-list b,.scan-history-list small{display:block;overflow-wrap:anywhere}
+.scan-history-list b{font-size:9px;color:#405675}
+.scan-history-list small{font-size:8px;color:#91a0b4;margin-top:4px}
+.auth-logo{background:transparent;border-radius:0;object-fit:contain}
+.sidebar-logo{width:36px;height:36px;aspect-ratio:1;border-radius:50%;object-fit:cover;background:transparent;overflow:hidden}
+@media(max-width:650px){.scanner-form{grid-template-columns:1fr}.scanner-form .primary-action{width:100%}.scan-metrics{grid-template-columns:1fr}.scan-history-list article{align-items:flex-start;flex-direction:column}.scanner-panel{padding:16px}}
