@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { createClient } from "@supabase/supabase-js";
+import WebsiteUnderstanding from "./website-understanding";
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!);
 const sections = [
@@ -350,6 +351,7 @@ export default function Home(){
         <p className="scan-disclaimer">Important: this first scan is unauthenticated and read-only. It does not prove that private Admin Panel actions or browser automation will work. A secure logged-in browser test is a separate next stage.</p>
        </section>}
       </section>
+      <WebsiteUnderstanding />
       {scanHistory.length>0&&<section className="panel scan-history-panel"><div className="panel-heading"><div><h2>Recent compatibility scans</h2><p>Private scan history for this admin account</p></div><button className="small-action" onClick={()=>void loadSection("connections")}>Refresh</button></div><div className="scan-history-list">{scanHistory.map(item=><article key={item.id} className="scan-history-record"><div><b>{item.normalized_url}</b><small>{date(item.created_at)} · {String(item.confidence||"low").toUpperCase()} confidence · HTTP {item.http_status||"—"}</small></div><div className="scan-history-actions"><span className="status-pill active">{item.recommended_method==="api"?"API candidate":item.recommended_method==="secure_browser"?"Browser inspection":item.recommended_method==="additional_access"?"Additional access":"Manual review"}</span><button type="button" className="small-action" onClick={()=>setScanResult(item)}>View report</button></div></article>)}</div></section>}
       <section className="panel data-panel"><div className="panel-heading"><div><h2>Existing authorized connections</h2><p>Previously authorized integrations. A scan alone never marks a website as connected.</p></div><button className="small-action" onClick={()=>void loadSection("connections")}>Refresh</button></div>{renderRows()}</section>
      </> : live ? renderRows() : active==="settings" ? <>
