@@ -34,6 +34,31 @@ Deno.serve(async (req: Request) => {
     const action = body.action;
     const actor = userData.user.id;
 
+    if (action === "save_branding") {
+      const loginLogoUrl = typeof body.login_logo_url === "string" ? body.login_logo_url.slice(0, 2048) : null;
+      const faviconUrl = typeof body.favicon_url === "string" ? body.favicon_url.slice(0, 2048) : null;
+      for (const value of [loginLogoUrl, faviconUrl]) {
+        if (value !== null) {
+          let parsed: URL;
+          try { parsed = new URL(value); } catch { return json({ error: "Branding asset URL is invalid." }, 400); }
+          if (parsed.protocol !== "https:" || !parsed.hostname || !parsed.pathname.includes("/storage/v1/object/public/admin-branding/brand-assets/")) {
+            return json({ error: "Branding assets must be uploaded to the approved public branding storage." }, 400);
+          }
+        }
+      }
+      const { data, error } = await admin.from("admin_branding").upsert({
+        id: true, login_logo_url: loginLogoUrl, favicon_url: faviconUrl,
+        updated_by: actor, updated_at: new Date().toISOString()
+      }, { onConflict: "id" }).select("login_logo_url,favicon_url,updated_at").single();
+      if (error) throw error;
+      await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, action: "admin_branding_updated", resource_type: "admin_branding",
+        resource_id: "true", outcome: "success",
+        details: { login_logo_updated: Boolean(loginLogoUrl), favicon_updated: Boolean(faviconUrl) }
+      });
+      return json({ ok: true, data, message: "Branding settings saved." });
+    }
+
     if (action === "overview") {
       const [requests, businesses, connections, tasks] = await Promise.all([
         admin.from("access_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
