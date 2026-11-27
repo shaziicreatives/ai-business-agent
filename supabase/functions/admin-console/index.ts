@@ -71,6 +71,44 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, counts: { pending_requests: requests.count || 0, businesses: businesses.count || 0, connections: connections.count || 0, tasks: tasks.count || 0 } });
     }
 
+    if (action === "create_manual_request") {
+      if (adminRecord.role !== "owner") return json({ error: "Only the Super Admin owner can register a manual access request." }, 403);
+      const businessName = typeof body.business_name === "string" ? body.business_name.trim().slice(0, 160) : "";
+      const ownerName = typeof body.owner_name === "string" ? body.owner_name.trim().slice(0, 160) : "";
+      const contactEmail = typeof body.contact_email === "string" ? body.contact_email.trim().slice(0, 254) : "";
+      const contactPhone = typeof body.contact_phone === "string" ? body.contact_phone.trim().slice(0, 40) : "";
+      const websiteUrl = typeof body.website_url === "string" ? body.website_url.trim().slice(0, 2048) : "";
+      const platform = typeof body.platform === "string" ? body.platform.trim().toLowerCase() : "";
+      const message = typeof body.message === "string" ? body.message.trim().slice(0, 2000) : "";
+      if (!businessName || !ownerName || !["custom", "shopify", "woocommerce", "wordpress"].includes(platform)) {
+        return json({ error: "Business name, owner reference and a supported platform are required." }, 400);
+      }
+      if (contactEmail && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(contactEmail)) return json({ error: "Enter a valid contact email or leave it blank." }, 400);
+      if (websiteUrl) {
+        let parsed: URL;
+        try { parsed = new URL(websiteUrl); } catch { return json({ error: "Website URL must be a valid HTTPS URL or left blank." }, 400); }
+        if (parsed.protocol !== "https:" || parsed.username || parsed.password) return json({ error: "Website URL must use HTTPS and contain no credentials." }, 400);
+      }
+      const { data: existing, error: duplicateError } = await admin.from("access_requests")
+        .select("id,status").ilike("business_name", businessName).eq("status", "pending").limit(1);
+      if (duplicateError) throw duplicateError;
+      if (existing?.length) return json({ error: "A pending request already exists for this business. Refresh the Access Requests list." }, 409);
+      const { data, error } = await admin.from("access_requests").insert({
+        business_name: businessName, owner_name: ownerName,
+        contact_email: contactEmail || null, contact_phone: contactPhone || null,
+        website_url: websiteUrl || null, platform, message, status: "pending",
+        created_at: new Date().toISOString()
+      }).select("*").single();
+      if (error) throw error;
+      const { error: auditError } = await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, action: "manual_access_request_created",
+        resource_type: "access_request", resource_id: data.id, outcome: "success",
+        details: { business_name: businessName, platform, website_url_provided: Boolean(websiteUrl), status: "pending" }
+      });
+      if (auditError) throw auditError;
+      return json({ ok: true, data, message: "Manual access request saved as pending. No business access or AI capability was activated." });
+    }
+
     if (action === "requests") {
       const { data, error } = await admin.from("access_requests").select("*").order("created_at", { ascending: false }).limit(100);
       if (error) throw error;
