@@ -45,6 +45,13 @@ export default function Home(){
  const [scanBusy,setScanBusy]=useState(false);
  const [scanResult,setScanResult]=useState<RowData|null>(null);
  const [scanHistory,setScanHistory]=useState<RowData[]>([]);
+ const [branding,setBranding]=useState<{login_logo_url:string|null;favicon_url:string|null}>({login_logo_url:null,favicon_url:null});
+ const [brandingLogoFile,setBrandingLogoFile]=useState<File|null>(null);
+ const [brandingFaviconFile,setBrandingFaviconFile]=useState<File|null>(null);
+ const [brandingBusy,setBrandingBusy]=useState(false);
+ const [brandingMessage,setBrandingMessage]=useState("");
+ const loginLogoUrl=branding.login_logo_url||"/creative-clan-logo-transparent.svg";
+ const faviconUrl=branding.favicon_url||"/favicon.svg";
 
  const action=useCallback(async(name:string,extra:RowData={})=>{
    const {data:{session},error:sessionError}=await supabase.auth.getSession();
@@ -109,6 +116,46 @@ export default function Home(){
    return()=>{mounted=false;sub.subscription.unsubscribe();};
  },[]);
  useEffect(()=>{if(adminEmail){void loadOverview();void loadSection(active);}},[adminEmail,active,loadOverview,loadSection]);
+ useEffect(()=>{
+   let mounted=true;
+   supabase.from("admin_branding").select("login_logo_url,favicon_url").eq("id",true).maybeSingle().then(({data})=>{
+     if(mounted&&data)setBranding({login_logo_url:data.login_logo_url||null,favicon_url:data.favicon_url||null});
+   });
+   return()=>{mounted=false;};
+ },[]);
+ useEffect(()=>{
+   if(typeof document==="undefined")return;
+   let link=document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+   if(!link){link=document.createElement("link");link.rel="icon";document.head.appendChild(link);}
+   link.href=faviconUrl;
+ },[faviconUrl]);
+ async function saveBranding(){
+   setBrandingBusy(true);setBrandingMessage("");
+   try{
+     const next={...branding};
+     const uploads:[File|null,"login-logo"|"favicon"][]=[[brandingLogoFile,"login-logo"],[brandingFaviconFile,"favicon"]];
+     for(const [file,kind] of uploads){
+       if(!file)continue;
+       if(file.size>2*1024*1024)throw new Error("Each image must be 2 MB or smaller.");
+       const allowed=["image/png","image/jpeg","image/webp","image/svg+xml","image/x-icon","image/vnd.microsoft.icon"];
+       if(!allowed.includes(file.type))throw new Error("Use PNG, JPG, WEBP, SVG or ICO image files.");
+       const ext=(file.name.split(".").pop()||"png").toLowerCase();
+       const path=`brand-assets/${kind}-${Date.now()}-${crypto.randomUUID()}.${ext}`;
+       const {error:uploadError}=await supabase.storage.from("admin-branding").upload(path,file,{contentType:file.type,cacheControl:"3600",upsert:false});
+       if(uploadError)throw uploadError;
+       const {data}=supabase.storage.from("admin-branding").getPublicUrl(path);
+       if(kind==="login-logo")next.login_logo_url=data.publicUrl;else next.favicon_url=data.publicUrl;
+     }
+     const result=await action("save_branding",next);
+     setBranding({login_logo_url:result.data.login_logo_url||null,favicon_url:result.data.favicon_url||null});
+     setBrandingLogoFile(null);setBrandingFaviconFile(null);
+     const logoInput=document.getElementById("branding-login-logo") as HTMLInputElement|null;
+     const iconInput=document.getElementById("branding-favicon") as HTMLInputElement|null;
+     if(logoInput)logoInput.value="";if(iconInput)iconInput.value="";
+     setBrandingMessage("Branding saved and applied successfully.");
+   }catch(e){setBrandingMessage(e instanceof Error?e.message:"Could not save branding.");}
+   finally{setBrandingBusy(false);}
+ }
 
  async function login(e:FormEvent<HTMLFormElement>){
    e.preventDefault();setBusy(true);setAuthError("");
@@ -167,12 +214,12 @@ export default function Home(){
    </tbody></table></div></section>;
  }
 
- if(checking)return <main className="auth-screen"><div className="auth-card"><img className="auth-logo" src="/creative-clan-logo-transparent.svg" alt="Creative Clan — Social Media & Marketing Agency" /><p>Checking private access…</p></div></main>;
- if(recoveryMode)return <main className="auth-screen"><form className="auth-card" onSubmit={saveNewPassword}><img className="auth-logo" src="/creative-clan-logo-transparent.svg" alt="Creative Clan" /><p className="eyebrow">ACCOUNT RECOVERY</p><h1>Set a new password</h1><p className="auth-copy">Choose a new password for your private admin account.</p><label>New password<input type="password" autoComplete="new-password" value={recoveryPassword} onChange={e=>setRecoveryPassword(e.target.value)} minLength={8} required/></label><label>Confirm new password<input type="password" autoComplete="new-password" value={recoveryConfirm} onChange={e=>setRecoveryConfirm(e.target.value)} minLength={8} required/></label>{authError&&<p className="auth-error">{authError}</p>}<button className="auth-submit" disabled={busy}>{busy?"Updating password…":"Save new password"}</button></form></main>;
+ if(checking)return <main className="auth-screen"><div className="auth-card"><img className="auth-logo" src={loginLogoUrl} alt="Login page logo" /><p>Checking private access…</p></div></main>;
+ if(recoveryMode)return <main className="auth-screen"><form className="auth-card" onSubmit={saveNewPassword}><img className="auth-logo" src={loginLogoUrl} alt="Login page logo" /><p className="eyebrow">ACCOUNT RECOVERY</p><h1>Set a new password</h1><p className="auth-copy">Choose a new password for your private admin account.</p><label>New password<input type="password" autoComplete="new-password" value={recoveryPassword} onChange={e=>setRecoveryPassword(e.target.value)} minLength={8} required/></label><label>Confirm new password<input type="password" autoComplete="new-password" value={recoveryConfirm} onChange={e=>setRecoveryConfirm(e.target.value)} minLength={8} required/></label>{authError&&<p className="auth-error">{authError}</p>}<button className="auth-submit" disabled={busy}>{busy?"Updating password…":"Save new password"}</button></form></main>;
  if(!adminEmail)return <main className="auth-screen"><form className="auth-card" onSubmit={login}><img className="auth-logo" src="/creative-clan-logo-transparent.svg" alt="Creative Clan — Social Media & Marketing Agency" /><p className="eyebrow">PRIVATE SUPER ADMIN</p><h1>Welcome back</h1><p className="auth-copy">Sign in with your authorized administrator account.</p><label>Email address<input type="email" autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)} required/></label><label>Password<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label>{authError&&<p className="auth-error">{authError}</p>}<button className="auth-submit" disabled={busy}>{busy?"Verifying access…":"Sign in securely"}</button><button type="button" className="forgot-link" onClick={()=>void sendPasswordReset()} disabled={busy}>{busy?"Sending…":"Forgot password?"}</button>{recoverySent&&<p className="recovery-success">If this admin email is registered, a password reset link has been sent. Check inbox and spam.</p>}<small>No public signup or client login. Only owner-authorized accounts can enter.</small></form></main>;
 
  return <main className="admin-shell">
-  <aside className="sidebar"><a className="brand" href="#" onClick={e=>{e.preventDefault();setActive("overview");}}><img className="sidebar-logo" src="/favicon.svg" alt="Creative Clan" /><span className="brand-name">Creative <b>Clan</b><small>PRIVATE ADMIN CONSOLE</small></span></a>{(["Workspace","Business Operations","Administration"] as const).map(group=><div className="nav-group" key={group}><div className="nav-caption">{group}</div><nav className="side-nav" aria-label={group}>{sections.filter(s=>s.group===group).map(s=><button key={s.id} className={active===s.id?"nav-link active":"nav-link"} onClick={()=>setActive(s.id)}><span className="nav-icon">{s.icon}</span><span>{s.label}</span>{s.id==="requests"&&<span className="nav-count">{counts.pending_requests}</span>}</button>)}</nav></div>)}<div className="sidebar-bottom"><div className="secure-mark">◇</div><div><b>Private workspace</b><small>Owner access only</small></div><span className="secure-dot"/></div></aside>
+  <aside className="sidebar"><a className="brand" href="#" onClick={e=>{e.preventDefault();setActive("overview");}}><img className="sidebar-logo" src={faviconUrl} alt="Creative Clan" /><span className="brand-name">Creative <b>Clan</b><small>PRIVATE ADMIN CONSOLE</small></span></a>{(["Workspace","Business Operations","Administration"] as const).map(group=><div className="nav-group" key={group}><div className="nav-caption">{group}</div><nav className="side-nav" aria-label={group}>{sections.filter(s=>s.group===group).map(s=><button key={s.id} className={active===s.id?"nav-link active":"nav-link"} onClick={()=>setActive(s.id)}><span className="nav-icon">{s.icon}</span><span>{s.label}</span>{s.id==="requests"&&<span className="nav-count">{counts.pending_requests}</span>}</button>)}</nav></div>)}<div className="sidebar-bottom"><div className="secure-mark">◇</div><div><b>Private workspace</b><small>Owner access only</small></div><span className="secure-dot"/></div></aside>
   <section className="main-area"><header className="topbar"><div className="breadcrumbs"><span>Creative Clan</span><i>/</i>{current.label}</div><div className="topbar-right"><span className="environment"><i/> PRIVATE ADMIN</span><span className="admin-email">{adminEmail}</span><button className="logout-button" onClick={()=>supabase.auth.signOut()}>Sign out</button></div></header>
    <div className="content">
     {active==="overview"?<>
@@ -211,7 +258,26 @@ export default function Home(){
       </section>
       {scanHistory.length>0&&<section className="panel scan-history-panel"><div className="panel-heading"><div><h2>Recent compatibility scans</h2><p>Private scan history for this admin account</p></div><button className="small-action" onClick={()=>void loadSection("connections")}>Refresh</button></div><div className="scan-history-list">{scanHistory.map(item=><article key={item.id}><div><b>{item.normalized_url}</b><small>{date(item.created_at)} · {String(item.confidence||"low").toUpperCase()} confidence</small></div><span className="status-pill active">{item.recommended_method==="api"?"API candidate":item.recommended_method==="secure_browser"?"Browser inspection":"Manual review"}</span></article>)}</div></section>}
       <section className="panel data-panel"><div className="panel-heading"><div><h2>Existing authorized connections</h2><p>Previously authorized integrations. A scan alone never marks a website as connected.</p></div><button className="small-action" onClick={()=>void loadSection("connections")}>Refresh</button></div>{renderRows()}</section>
-     </> : active==="tasks" ? renderRows() : live ? renderRows() : active==="settings" ? <section className="panel data-panel"><div className="panel-heading"><div><h2>Workspace settings</h2><p>Private control-plane environment</p></div><span className="status-pill active">SECURE</span></div><div className="record-details"><span><b>Admin access:</b> Supabase Auth + private role check</span><span><b>Database region:</b> Mumbai (ap-south-1)</span><span><b>Client portal:</b> Not enabled</span><span><b>External integrations:</b> Paused</span><span><b>Production website:</b> Not connected or modified</span></div><p className="privacy-note">Admin roles are managed directly in the protected private_admins table. No public role-management controls are exposed.</p></section> : <section className="empty-panel"><div className="empty-symbol">{current.icon}</div><h2>No configuration yet</h2><p>{placeholders[active]?.description} No demo records are shown.</p></section>}
+     </> : active==="tasks" ? renderRows() : live ? renderRows() : active==="settings" ? <>
+      <section className="panel data-panel branding-panel">
+       <div className="panel-heading"><div><span className="panel-kicker">BRAND IDENTITY</span><h2>Branding & appearance</h2><p>Customize the logo shown on your login screen and the icon shown in browser tabs.</p></div><span className="status-pill active">OWNER CONTROL</span></div>
+       <div className="branding-grid">
+        <article className="branding-card">
+         <div><h3>Login page logo</h3><p>Recommended: transparent PNG, SVG or WEBP. Maximum 2 MB.</p></div>
+         <div className="branding-preview login-brand-preview"><img src={brandingLogoFile?URL.createObjectURL(brandingLogoFile):loginLogoUrl} alt="Login logo preview"/></div>
+         <label className="branding-upload">Choose logo<input id="branding-login-logo" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={e=>setBrandingLogoFile(e.target.files?.[0]||null)}/></label>
+        </article>
+        <article className="branding-card">
+         <div><h3>Browser favicon</h3><p>Recommended: square PNG, WEBP, SVG or ICO. Maximum 2 MB.</p></div>
+         <div className="branding-preview favicon-brand-preview"><img src={brandingFaviconFile?URL.createObjectURL(brandingFaviconFile):faviconUrl} alt="Favicon preview"/></div>
+         <label className="branding-upload">Choose favicon<input id="branding-favicon" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/x-icon" onChange={e=>setBrandingFaviconFile(e.target.files?.[0]||null)}/></label>
+        </article>
+       </div>
+       <div className="branding-actions"><button className="primary-action" disabled={brandingBusy||(!brandingLogoFile&&!brandingFaviconFile)} onClick={()=>void saveBranding()}>{brandingBusy?"Uploading & saving…":"Save & apply branding"}</button><span>{brandingMessage||"Your current logo and favicon stay active until you save new files."}</span></div>
+       <div className="record-details"><span><b>Login logo:</b> {branding.login_logo_url?"Custom logo active":"Creative Clan default"}</span><span><b>Favicon:</b> {branding.favicon_url?"Custom favicon active":"Creative Clan default"}</span><span><b>Storage:</b> Supabase public branding bucket · Admin-only uploads</span></div>
+      </section>
+      <section className="panel data-panel"><div className="panel-heading"><div><h2>Workspace settings</h2><p>Private control-plane environment</p></div><span className="status-pill active">SECURE</span></div><div className="record-details"><span><b>Admin access:</b> Supabase Auth + private role check</span><span><b>Database region:</b> Mumbai (ap-south-1)</span><span><b>Client portal:</b> Not enabled</span><span><b>External integrations:</b> Paused</span><span><b>Production website:</b> Not connected or modified</span></div><p className="privacy-note">Admin roles are managed directly in the protected private_admins table. No public role-management controls are exposed.</p></section>
+     </> : <section className="empty-panel"><div className="empty-symbol">{current.icon}</div><h2>No configuration yet</h2><p>{placeholders[active]?.description} No demo records are shown.</p></section>}
     {active==="businesses"&&<p className="privacy-note">Clients do not receive accounts on Creative Clan. Records are visible only to authorized internal administrators.</p>}
     </>}
     <footer className="footer"><span>CREATIVE CLAN</span><span>PRIVATE AI BUSINESS AGENT · ADMIN CONTROL PLANE</span></footer>
