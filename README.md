@@ -31,7 +31,7 @@ Private, owner-operated control plane for an AI business agent. This is **not** 
 - **Frontend:** Next.js App Router, React, TypeScript, statically exported to Cloudflare Pages
 - **Control-plane database and auth:** Supabase
 - **API, OAuth callbacks and webhooks:** Cloudflare Workers (`ai-business-agent-api` v0.3.0 API gateway deployed; OAuth/webhooks not activated yet)
-- **AI inference:** Provider/model intentionally not selected or connected yet
+- **AI inference:** Cloudflare Workers AI is configured in the API Worker (@cf/zai-org/glm-4.7-flash); business-system tools and action execution are not connected yet
 - **Source control and deployment:** GitHub Actions → Cloudflare Pages
 
 ## Current deployment
@@ -58,6 +58,7 @@ Private, owner-operated control plane for an AI business agent. This is **not** 
 
 - Live end-to-end browser test of admin sign-in, authorization, dashboard data loading, and request submission/review.
 - OAuth/delegated platform connections, token storage/rotation, revocation, and webhooks.
+- Authenticated browser automation and actual Admin Panel operations; the first Admin Panel Compatibility Scanner performs only an unauthenticated, read-only public preflight.
 - AI provider/model selection, inference, agent orchestration, and tool execution.
 - Automation scheduling and execution runtime.
 - Real usage/cost metering and operational alerts.
@@ -80,7 +81,7 @@ Private, owner-operated control plane for an AI business agent. This is **not** 
 
 ## Cloudflare API foundation (2026-11-25)
 
-- Deployed `ai-business-agent-api` Worker v0.3.0 with `/health`, `/v1/status`, `/v1/admin/verify`, `/v1/admin/console`, and `/v1/access-requests` routes. Admin requests forward the user's bearer token to Supabase Edge Functions; service-role credentials never enter the Worker.
+- Deployed `ai-business-agent-api` Worker v0.4.0 with `/health`, `/v1/status`, `/v1/admin/verify`, `/v1/admin/console`, and `/v1/access-requests` routes. Admin requests forward the user's bearer token to Supabase Edge Functions; service-role credentials never enter the Worker.
 - Restricted CORS to the production admin origin; added request IDs, no-store caching, basic security headers, and structured request logs.
 - Enabled Workers observability, invocation logs, and traces.
 - Worker reports `gateway_foundation`: the admin API gateway and public request proxy are implemented, while AI model, business integrations, and automation execution remain disabled until implemented and tested.
@@ -100,3 +101,13 @@ Prefer free tiers and no-cost services. Check current limits before relying on a
 
 
 Admin gateway CORS accepts the stable Pages hostname and deployment aliases for this project only.
+
+
+## Admin Panel Compatibility Scanner (2026-11-26)
+
+- Added a private Admin Panel Scanner module to the existing Master Admin Portal. An authorized admin can paste an HTTPS Admin Panel URL and request a passive compatibility preflight.
+- Cloudflare Worker validates the submitted hostname against public DNS records, rejects localhost/private/reserved addresses, does not follow redirects, limits response-body inspection, and makes unauthenticated GET requests only.
+- Scanner checks public page metadata, basic technology clues, login redirects/forms, and common public OpenAPI/Swagger specification paths. It recommends an API candidate, a secure authenticated browser inspection as the next step, or manual review.
+- Scan history is stored in public.admin_panel_scans, with RLS enabled and browser-role table privileges revoked. Only the authenticated private admin Edge Function writes/reads scan records.
+- The first scanner does not log in, collect passwords/OTPs/cookies, access private records, verify API credentials, test browser automation, or change the target website. It is a compatibility preflight, not a completed integration.
+- Added circular transparent favicon and a login logo asset that retains the original Creative Clan mark and wording while keying out the dark image background.
