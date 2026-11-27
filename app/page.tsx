@@ -8,7 +8,7 @@ const sections = [
   { id:"overview",label:"Overview",icon:"▦",group:"Workspace" },
   { id:"businesses",label:"Businesses",icon:"♙",group:"Workspace" },
   { id:"requests",label:"Access requests",icon:"↗",group:"Workspace" },
-  { id:"connections",label:"Website connections",icon:"⌁",group:"Workspace" },
+  { id:"connections",label:"Admin Panel Scanner",icon:"⌁",group:"Workspace" },
   { id:"automations",label:"Automations",icon:"ϟ",group:"Workspace" },
   { id:"tasks",label:"Task center",icon:"☑",group:"Workspace" },
   { id:"credits",label:"Usage & Credits",icon:"◉",group:"Business Operations" },
@@ -30,7 +30,7 @@ const placeholders: Partial<Record<Section,{title:string,description:string}>> =
   notifications:{title:"Notifications",description:"Important access, security and system alerts will appear here."},
   settings:{title:"Settings",description:"Manage internal admin access and system preferences."},
 };
-const titles: Partial<Record<Section,string>> = { credits:"Usage & Credits",requests:"Access requests",businesses:"Businesses",connections:"Website connections",tasks:"Task history",security:"Security & audit logs",automations:"Automations" };
+const titles: Partial<Record<Section,string>> = { credits:"Usage & Credits",requests:"Access requests",businesses:"Businesses",connections:"Admin Panel Scanner",tasks:"Task history",security:"Security & audit logs",automations:"Automations" };
 
 export default function Home(){
  const [active,setActive]=useState<Section>("overview"),[email,setEmail]=useState(""),[password,setPassword]=useState("");
@@ -41,8 +41,10 @@ export default function Home(){
  const [creditInputs,setCreditInputs]=useState<Record<string,{quota:string,amount:string,reason:string}>>({}),[creditBusy,setCreditBusy]=useState("");
  const [creditHistory,setCreditHistory]=useState<Record<string,RowData[]>>({});
  const [previewOpen,setPreviewOpen]=useState(false);
- const [businessOptions,setBusinessOptions]=useState<RowData[]>([]);
- const [setupPlatform,setSetupPlatform]=useState("shopify"),[setupDomain,setSetupDomain]=useState(""),[setupBusiness,setSetupBusiness]=useState(""),[setupMethod,setSetupMethod]=useState("oauth"),[setupNotes,setSetupNotes]=useState(""),[setupBusy,setSetupBusy]=useState(false);
+ const [scanUrl,setScanUrl]=useState("");
+ const [scanBusy,setScanBusy]=useState(false);
+ const [scanResult,setScanResult]=useState<RowData|null>(null);
+ const [scanHistory,setScanHistory]=useState<RowData[]>([]);
 
  const action=useCallback(async(name:string,extra:RowData={})=>{
    const {data:{session},error:sessionError}=await supabase.auth.getSession();
@@ -63,18 +65,27 @@ export default function Home(){
    const map:Partial<Record<Section,string>>={requests:"requests",businesses:"businesses",connections:"connections",tasks:"tasks",security:"audit",automations:"automations",credits:"credits"};
    if(!map[section]){setRows([]);return;}
    setDataBusy(true);setDataError("");
-   try{const d=await action(map[section]!);setRows(d.data||[]);if(section==="connections"){const b=await action("businesses");const approved=(b.data||[]).filter((x:RowData)=>x.status==="active");setBusinessOptions(approved);if(!setupBusiness&&approved[0])setSetupBusiness(approved[0].id);}}catch(e){setRows([]);setDataError(e instanceof Error?e.message:"Could not load records.");}
+   try{
+     const d=await action(map[section]!);setRows(d.data||[]);
+     if(section==="connections"){const history=await action("panel_scans");setScanHistory(history.data||[]);}
+   }catch(e){setRows([]);setDataError(e instanceof Error?e.message:"Could not load records.");}
    finally{setDataBusy(false);}
- },[action,setupBusiness]);
- async function startConnectionSetup(e:FormEvent<HTMLFormElement>){
-   e.preventDefault();setSetupBusy(true);setDataError("");
-   try{await action("start_connection_setup",{business_id:setupBusiness,platform:setupPlatform,domain:setupDomain,method:setupMethod,notes:setupNotes});setSetupDomain("");setSetupNotes("");await loadSection("connections");await loadOverview();}
-   catch(e){setDataError(e instanceof Error?e.message:"Could not save integration setup.");}
-   finally{setSetupBusy(false);}
- }
- async function cancelConnectionSetup(id:string){
-   setDataError("");try{await action("cancel_connection_setup",{id});await loadSection("connections");await loadOverview();}
-   catch(e){setDataError(e instanceof Error?e.message:"Could not cancel setup.");}
+ },[action]);
+ async function runPanelScan(){
+   setScanBusy(true);setDataError("");setScanResult(null);
+   try{
+     const {data:{session},error:sessionError}=await supabase.auth.getSession();
+     if(sessionError||!session)throw new Error("Your admin session has expired. Please sign in again.");
+     const response=await fetch(process.env.NEXT_PUBLIC_API_BASE_URL+"/v1/admin/panel-scan",{
+       method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+session.access_token},
+       body:JSON.stringify({url:scanUrl.trim()})
+     });
+     const data=await response.json().catch(()=>({}));
+     if(!response.ok||!data?.ok)throw new Error(data?.error||"Compatibility scan failed.");
+     setScanResult(data.data);
+     const history=await action("panel_scans");setScanHistory(history.data||[]);
+   }catch(e){setDataError(e instanceof Error?e.message:"Compatibility scan failed.");}
+   finally{setScanBusy(false);}
  }
  async function verify(token:string){
    const response=await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/v1/admin/verify`,{
@@ -156,12 +167,12 @@ export default function Home(){
    </tbody></table></div></section>;
  }
 
- if(checking)return <main className="auth-screen"><div className="auth-card"><img className="auth-logo" src="/creative-clan-logo.webp" alt="Creative Clan — Social Media & Marketing Agency" /><p>Checking private access…</p></div></main>;
+ if(checking)return <main className="auth-screen"><div className="auth-card"><img className="auth-logo" src="/creative-clan-logo-transparent.svg" alt="Creative Clan — Social Media & Marketing Agency" /><p>Checking private access…</p></div></main>;
  if(recoveryMode)return <main className="auth-screen"><form className="auth-card" onSubmit={saveNewPassword}><img className="auth-logo" src="/creative-clan-logo.webp" alt="Creative Clan" /><p className="eyebrow">ACCOUNT RECOVERY</p><h1>Set a new password</h1><p className="auth-copy">Choose a new password for your private admin account.</p><label>New password<input type="password" autoComplete="new-password" value={recoveryPassword} onChange={e=>setRecoveryPassword(e.target.value)} minLength={8} required/></label><label>Confirm new password<input type="password" autoComplete="new-password" value={recoveryConfirm} onChange={e=>setRecoveryConfirm(e.target.value)} minLength={8} required/></label>{authError&&<p className="auth-error">{authError}</p>}<button className="auth-submit" disabled={busy}>{busy?"Updating password…":"Save new password"}</button></form></main>;
  if(!adminEmail)return <main className="auth-screen"><form className="auth-card" onSubmit={login}><img className="auth-logo" src="/creative-clan-logo.webp" alt="Creative Clan — Social Media & Marketing Agency" /><p className="eyebrow">PRIVATE SUPER ADMIN</p><h1>Welcome back</h1><p className="auth-copy">Sign in with your authorized administrator account.</p><label>Email address<input type="email" autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)} required/></label><label>Password<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label>{authError&&<p className="auth-error">{authError}</p>}<button className="auth-submit" disabled={busy}>{busy?"Verifying access…":"Sign in securely"}</button><button type="button" className="forgot-link" onClick={()=>void sendPasswordReset()} disabled={busy}>{busy?"Sending…":"Forgot password?"}</button>{recoverySent&&<p className="recovery-success">If this admin email is registered, a password reset link has been sent. Check inbox and spam.</p>}<small>No public signup or client login. Only owner-authorized accounts can enter.</small></form></main>;
 
  return <main className="admin-shell">
-  <aside className="sidebar"><a className="brand" href="#" onClick={e=>{e.preventDefault();setActive("overview");}}><img className="sidebar-logo" src="/favicon.webp" alt="Creative Clan" /><span className="brand-name">Creative <b>Clan</b><small>PRIVATE ADMIN CONSOLE</small></span></a>{(["Workspace","Business Operations","Administration"] as const).map(group=><div className="nav-group" key={group}><div className="nav-caption">{group}</div><nav className="side-nav" aria-label={group}>{sections.filter(s=>s.group===group).map(s=><button key={s.id} className={active===s.id?"nav-link active":"nav-link"} onClick={()=>setActive(s.id)}><span className="nav-icon">{s.icon}</span><span>{s.label}</span>{s.id==="requests"&&<span className="nav-count">{counts.pending_requests}</span>}</button>)}</nav></div>)}<div className="sidebar-bottom"><div className="secure-mark">◇</div><div><b>Private workspace</b><small>Owner access only</small></div><span className="secure-dot"/></div></aside>
+  <aside className="sidebar"><a className="brand" href="#" onClick={e=>{e.preventDefault();setActive("overview");}}><img className="sidebar-logo" src="/favicon.svg" alt="Creative Clan" /><span className="brand-name">Creative <b>Clan</b><small>PRIVATE ADMIN CONSOLE</small></span></a>{(["Workspace","Business Operations","Administration"] as const).map(group=><div className="nav-group" key={group}><div className="nav-caption">{group}</div><nav className="side-nav" aria-label={group}>{sections.filter(s=>s.group===group).map(s=><button key={s.id} className={active===s.id?"nav-link active":"nav-link"} onClick={()=>setActive(s.id)}><span className="nav-icon">{s.icon}</span><span>{s.label}</span>{s.id==="requests"&&<span className="nav-count">{counts.pending_requests}</span>}</button>)}</nav></div>)}<div className="sidebar-bottom"><div className="secure-mark">◇</div><div><b>Private workspace</b><small>Owner access only</small></div><span className="secure-dot"/></div></aside>
   <section className="main-area"><header className="topbar"><div className="breadcrumbs"><span>Creative Clan</span><i>/</i>{current.label}</div><div className="topbar-right"><span className="environment"><i/> PRIVATE ADMIN</span><span className="admin-email">{adminEmail}</span><button className="logout-button" onClick={()=>supabase.auth.signOut()}>Sign out</button></div></header>
    <div className="content">
     {active==="overview"?<>
@@ -176,48 +187,31 @@ export default function Home(){
      <div className="page-heading"><div><p className="eyebrow">{live?"LIVE ADMIN DATA":"AGENT CONFIGURATION"}</p><h1>{titles[active]||placeholders[active]?.title}</h1><p className="subheading">{active==="requests"?"Review business requests and approve or decline access.":active==="businesses"?"Internal records of approved businesses. No client portal or login is created.":active==="connections"?"Officially authorized platform connections and their status.":active==="tasks"?"Review internal task history and execution states.":active==="security"?"Internal administrator actions and audit trail.":active==="automations"?"Review automation definitions stored in the control plane. Execution remains disabled until the agent runtime is configured.":placeholders[active]?.description}</p></div><span className="date-label">PRIVATE ADMIN AREA</span></div>
      {dataError&&<p className="data-error">{dataError}</p>}
      {active==="connections" ? <>
-      <section className="integration-hub">
-       <div className="integration-intro"><div><span className="panel-kicker">WEBSITE INTEGRATIONS</span><h2>Connect a business website</h2><p>Choose where the website runs. Each platform has its own login and permission process. You never enter a store password or OTP in this dashboard.</p></div><span className="hub-count">{rows.filter(x=>x.connection_status==="active").length} VERIFIED CONNECTIONS</span></div>
-       <div className="integration-choices">
-        <button type="button" className={setupPlatform==="shopify"?"integration-choice selected":"integration-choice"} onClick={()=>{setSetupPlatform("shopify");setSetupMethod("oauth");}}><span className="integration-logo shopify-mark">S</span><b>Shopify</b><small>Shopify account login + app approval</small><em>Best for Shopify stores</em></button>
-        <button type="button" className={setupPlatform==="woocommerce"?"integration-choice selected":"integration-choice"} onClick={()=>{setSetupPlatform("woocommerce");setSetupMethod("rest_api");}}><span className="integration-logo woo-mark">W</span><b>WooCommerce</b><small>WordPress login + API authorization</small><em>Best for WooCommerce stores</em></button>
-        <button type="button" className={setupPlatform==="hostinger"?"integration-choice selected":"integration-choice"} onClick={()=>{setSetupPlatform("hostinger");setSetupMethod("wordpress_plugin");}}><span className="integration-logo hostinger-mark">H</span><b>Hostinger</b><small>Identify WordPress or custom website</small><em>Hosting provider, not store API</em></button>
-        <button type="button" className={setupPlatform==="custom"?"integration-choice selected":"integration-choice"} onClick={()=>{setSetupPlatform("custom");setSetupMethod("custom_api");}}><span className="integration-logo custom-mark">&lt;/&gt;</span><b>Custom coded</b><small>Secure API connection / SDK</small><em>For your own coded websites</em></button>
+      <section className="panel scanner-panel">
+       <div className="scanner-intro">
+        <div><span className="panel-kicker">ADMIN PANEL COMPATIBILITY</span><h2>Check a client's existing Admin Panel</h2><p>Paste the Admin Panel URL. The scanner checks public technical signals and recommends the next connection route.</p></div>
+        <span className="scanner-mark">⌕</span>
        </div>
-       <section className="panel connection-guide">
-        <div className="guide-heading"><div><span className="panel-kicker">HOW THIS PLATFORM CONNECTS</span><h2>{setupPlatform==="shopify"?"Shopify account authorization":setupPlatform==="woocommerce"?"WooCommerce API authorization":setupPlatform==="hostinger"?"Hostinger website type": "Custom website API setup"}</h2></div><span className="guide-step-count">4 STEPS</span></div>
-        {setupPlatform==="shopify"?<>
-         <ol className="connection-steps"><li><b>Enter your store domain</b><span>Use the permanent <code>your-store.myshopify.com</code> domain, not a storefront password.</span></li><li><b>Open Shopify's secure authorization</b><span>Shopify will ask you to sign in if needed, then show the app name and requested permissions.</span></li><li><b>Review and approve</b><span>The store owner clicks Install / Approve on Shopify. We never ask for the Shopify password or OTP.</span></li><li><b>Return to this dashboard</b><span>The backend exchanges the authorization, stores the token securely and tests access before showing Connected.</span></li></ol>
-         <div className="guide-callout warning"><b>One-time app setup still required</b><p>The Shopify app Client ID, Client Secret, app URL and callback URL have not yet been configured. Until those are installed as server-side secrets and registered in Shopify Dev Dashboard, there is no safe Shopify login button to launch. This is app-owner setup, not a store-owner password form.</p></div>
-        </>:setupPlatform==="woocommerce"?<>
-         <ol className="connection-steps"><li><b>Enter the WordPress website URL</b><span>Use the HTTPS domain where WooCommerce is installed.</span></li><li><b>Click Authorize in WooCommerce</b><span>The owner signs in to WordPress/WooCommerce on their own site and approves the requested access.</span></li><li><b>WooCommerce issues API keys</b><span>Its authorization flow sends the generated key pair to our registered HTTPS callback. No key should be pasted into notes or chat.</span></li><li><b>Verify the store</b><span>The backend tests the WooCommerce REST API, saves credentials encrypted and records granted permissions.</span></li></ol>
-         <div className="guide-callout"><b>Required on the store</b><p>WooCommerce 3.5+ / WordPress 4.4+, HTTPS, pretty permalinks, and an owner account allowed to manage API keys. Read-only access should be used until write actions are explicitly approved.</p></div>
-        </>:setupPlatform==="hostinger"?<>
-         <ol className="connection-steps"><li><b>Enter the website domain</b><span>Use the domain hosted on Hostinger.</span></li><li><b>Identify the website software</b><span>If it is WordPress + WooCommerce, choose the WooCommerce connector. If it is WordPress without WooCommerce, use a WordPress API/plugin connector.</span></li><li><b>If it is custom-coded</b><span>Hostinger hosting alone does not expose products, orders or inventory. The website needs a secure API endpoint or our SDK.</span></li><li><b>Test before activation</b><span>We verify the endpoint and permissions before marking it connected.</span></li></ol>
-         <div className="guide-callout warning"><b>Important</b><p>There is no universal Hostinger store-login API. Do not enter Hostinger hPanel credentials here. Hosting access is not the same as permission to manage the website's business data.</p></div>
-        </>:<>
-         <ol className="connection-steps"><li><b>Enter the website domain</b><span>HTTPS is required.</span></li><li><b>Provide an API contract</b><span>The website developer exposes documented endpoints for products, inventory, orders and permitted actions.</span></li><li><b>Configure secure authentication</b><span>Use scoped API credentials or signed requests; credentials are sent through a secure handoff, never ordinary notes.</span></li><li><b>Run connection tests</b><span>We validate identity, permissions, tenant isolation and read/write behavior before activation.</span></li></ol>
-         <div className="guide-callout"><b>Developer requirement</b><p>A domain by itself cannot provide access. We need an API base URL, authentication method, endpoint specification and a test environment or test account.</p></div>
-        </>}
-       </section>
-       <form className="panel integration-form" onSubmit={startConnectionSetup}>
-        <div className="panel-heading"><div><span className="panel-kicker">CONNECTION DETAILS</span><h2>{setupPlatform==="shopify"?"Prepare Shopify connection":setupPlatform==="woocommerce"?"Prepare WooCommerce connection":setupPlatform==="hostinger"?"Register Hostinger website":"Register custom website"}</h2><p>Save the website against an approved business. This step does not claim that authorization is complete.</p></div><span className="pending-label">SETUP DRAFT</span></div>
-        {businessOptions.length===0&&<p className="integration-no-business">No approved business is available yet. First approve a request in Access Requests. Then its business will appear here.</p>}
-        <div className="integration-fields">
-         <label>Business owner / client<select value={setupBusiness} onChange={e=>setSetupBusiness(e.target.value)} required><option value="">Choose an approved business</option>{businessOptions.map(x=><option key={x.id} value={x.id}>{x.business_name} · {x.contact_email||"No email"}</option>)}</select></label>
-         <label>{setupPlatform==="shopify"?"Shopify permanent store domain":"Website domain"}<input value={setupDomain} onChange={e=>setSetupDomain(e.target.value)} placeholder={setupPlatform==="shopify"?"your-store.myshopify.com":"https://yourdomain.com"} required autoComplete="url"/></label>
-        </div>
-        <div className="integration-guidance"><p><b>Selected connection method:</b> {setupPlatform==="shopify"?"Shopify hosted OAuth":setupPlatform==="woocommerce"?"WooCommerce built-in API authorization":setupPlatform==="hostinger"?"WordPress plugin / WooCommerce API / custom API (based on site type)":"Custom authenticated API / SDK"}</p></div>
-        <div className="integration-form-actions"><button className="primary-action" type="submit" disabled={setupBusy||!setupBusiness}>{setupBusy?"Saving…":"Save website setup"}</button><small>Next stage: platform authorization → secure token storage → test connection → activate.</small></div>
+       <form className="scanner-form" onSubmit={e=>{e.preventDefault();void runPanelScan();}}>
+        <label>Admin Panel URL<input type="url" value={scanUrl} onChange={e=>setScanUrl(e.target.value)} placeholder="https://clientwebsite.com/admin" required autoComplete="url"/></label>
+        <button className="primary-action" type="submit" disabled={scanBusy||!scanUrl.trim()}>{scanBusy?"Scanning…":"Scan compatibility"}</button>
        </form>
+       <div className="scanner-safety"><span>SECURE PASSIVE CHECK</span><p>HTTPS only · GET requests only · No login, password, OTP or cookies are collected · No changes are made to the client's website.</p></div>
+       {scanResult&&<section className="scan-result">
+        <div className="scan-result-heading"><div><span className="panel-kicker">SCAN REPORT</span><h3>{scanResult.scan_report?.page_title||scanResult.normalized_url}</h3><p>{scanResult.detected_stack||"Software not identified"}</p></div><span className={"status-pill "+(scanResult.scan_status==="completed"?"active":"pending")}>{scanResult.scan_status}</span></div>
+        <div className="scan-metrics">
+         <div><small>Recommended route</small><b>{scanResult.recommended_method==="api"?"API candidate":scanResult.recommended_method==="secure_browser"?"Secure browser inspection":scanResult.recommended_method==="additional_access"?"Additional access":"Manual review"}</b></div>
+         <div><small>Confidence</small><b>{String(scanResult.confidence||"low").toUpperCase()}</b></div>
+         <div><small>HTTP response</small><b>{scanResult.http_status||"—"}</b></div>
+        </div>
+        <div className="scan-findings"><b>What the scanner found</b>{(scanResult.findings||[]).map((item:RowData,index:number)=><div key={index}><span className={"finding-dot "+String(item.status||"")}></span><span><strong>{item.label}</strong><small>{item.detail}</small></span></div>)}</div>
+        <div className="scan-recommendations"><b>Recommended next steps</b><ul>{(scanResult.recommendations||[]).map((item:string,index:number)=><li key={index}>{item}</li>)}</ul></div>
+        <p className="scan-disclaimer">Important: this first scan is unauthenticated and read-only. It does not prove that private Admin Panel actions or browser automation will work. A secure logged-in browser test is a separate next stage.</p>
+       </section>}
       </section>
-      <section className="panel data-panel"><div className="panel-heading"><div><h2>Connected websites & setup drafts</h2><p>Only verified platform authorizations are marked Connected.</p></div><button className="small-action" onClick={()=>void loadSection("connections")}>Refresh</button></div>
-       {dataBusy?<div className="empty-inline">Loading connection records…</div>:rows.length===0?<div className="empty-inline">No websites registered yet. Choose a platform above to begin.</div>:<div className="connection-record-list">{rows.map(row=><article className="connection-record" key={row.id}><div><div className="connection-record-title"><b>{String(row.platform).toUpperCase()}</b><span className={"status-pill "+(row.connection_status==="active"?"active":"pending")}>{row.connection_status==="active"?"CONNECTED":row.connection_status.toUpperCase()}</span></div><strong>{row.external_account_ref||"Domain not set"}</strong><small>Method: {row.connection_metadata?.setup_method||"—"} · Added: {date(row.created_at)}</small><small>{row.connection_metadata?.authorization_complete?"Authorization verified":row.connection_status==="active"?"Connection active":"Setup saved; platform authorization not completed"}</small></div>{row.connection_status!=="active"&&<button className="danger-action" type="button" onClick={()=>void cancelConnectionSetup(row.id)}>Cancel draft</button>}</article>)}</div>}
-      </section>
-      <p className="privacy-note">Security rule: passwords, OTPs, Shopify client secrets, WooCommerce consumer secrets and custom API tokens must never be entered in this setup form, internal notes or chat. The final authorization step will use the official platform flow and server-side encrypted storage.</p>
-     </> : active==="tasks" ? renderRows() : live ? renderRows() : active==="settings" ? <section className="panel data-panel"><div className="panel-heading"><div><h2>Workspace settings</h2><p>Private control-plane environment</p></div><span className="status-pill active">SECURE</span></div><div className="record-details"><span><b>Admin access:</b> Supabase Auth + private role check</span><span><b>Database region:</b> Mumbai (ap-south-1)</span><span><b>Client portal:</b> Not enabled</span><span><b>External integrations:</b> Paused</span><span><b>Production website:</b> Not connected or modified</span></div><p className="privacy-note">Admin roles are managed directly in the protected private_admins table. No public role-management controls are exposed.</p></section> : <section className="empty-panel"><div className="empty-symbol">{current.icon}</div><h2>No configuration yet</h2><p>{placeholders[active]?.description} No demo records are shown.</p></section>}
-     {active==="businesses"&&<p className="privacy-note">Clients do not receive accounts on Creative Clan. Records are visible only to authorized internal administrators.</p>}
-     {active==="connections"&&<p className="privacy-note">Authorization must be granted by the business owner through the platform's official consent flow. Never ask clients to send passwords.</p>}
+      {scanHistory.length>0&&<section className="panel scan-history-panel"><div className="panel-heading"><div><h2>Recent compatibility scans</h2><p>Private scan history for this admin account</p></div><button className="small-action" onClick={()=>void loadSection("connections")}>Refresh</button></div><div className="scan-history-list">{scanHistory.map(item=><article key={item.id}><div><b>{item.normalized_url}</b><small>{date(item.created_at)} · {String(item.confidence||"low").toUpperCase()} confidence</small></div><span className="status-pill active">{item.recommended_method==="api"?"API candidate":item.recommended_method==="secure_browser"?"Browser inspection":"Manual review"}</span></article>)}</div></section>}
+      <section className="panel data-panel"><div className="panel-heading"><div><h2>Existing authorized connections</h2><p>Previously authorized integrations. A scan alone never marks a website as connected.</p></div><button className="small-action" onClick={()=>void loadSection("connections")}>Refresh</button></div>{renderRows()}</section>
+     </> : {active==="connections"&&<p className="privacy-note">Authorization must be granted by the business owner through the platform's official consent flow. Never ask clients to send passwords.</p>}
     </>}
     <footer className="footer"><span>CREATIVE CLAN</span><span>PRIVATE AI BUSINESS AGENT · ADMIN CONTROL PLANE</span></footer>
    </div>
