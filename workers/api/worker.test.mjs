@@ -173,13 +173,22 @@ test("admin panel scanner requires an admin bearer token", async () => {
 });
 
 test("admin panel scanner rejects localhost and IP literal targets", async () => {
-  const response = await worker.fetch(new Request("https://api.example/v1/admin/panel-scan", {
-    method: "POST", headers: { Origin: ADMIN_ORIGIN, Authorization: "Bearer test-user-jwt", "Content-Type": "application/json" },
-    body: JSON.stringify({ url: "https://127.0.0.1/admin" })
-  }), env);
-  assert.equal(response.status, 400);
-  const data = await response.json();
-  assert.match(data.error, /public website hostname/i);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/admin-verify")) return new Response(JSON.stringify({ authorized: true }), { status: 200 });
+    throw new Error("The scanner must reject the target before attempting any target fetch.");
+  };
+  try {
+    const response = await worker.fetch(new Request("https://api.example/v1/admin/panel-scan", {
+      method: "POST", headers: { Origin: ADMIN_ORIGIN, Authorization: "Bearer test-user-jwt", "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "https://127.0.0.1/admin" })
+    }), env);
+    assert.equal(response.status, 400);
+    const data = await response.json();
+    assert.match(data.error, /public website hostname/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("admin panel scanner performs unauthenticated GET-only inspection and stores a report", async () => {
