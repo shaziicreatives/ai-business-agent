@@ -468,7 +468,7 @@ Deno.serve(async (req: Request) => {
       const merged = { ...prior, website_map: safeMap };
       const { data, error } = await admin.from("admin_panel_scans").update({ scan_report: merged })
         .eq("id", scanId).eq("created_by", actor)
-        .select("id,normalized_url,scan_report,updated_at").single();
+        .select("id,normalized_url,scan_report").single();
       if (error) throw error;
       const { error: auditError } = await admin.from("admin_audit_events").insert({
         actor_user_id: actor, action: "admin_panel_website_map_saved",
