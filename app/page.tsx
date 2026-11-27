@@ -49,6 +49,9 @@ export default function Home(){
  const [browserSession,setBrowserSession]=useState<RowData|null>(null);
  const [approvedBusinesses,setApprovedBusinesses]=useState<RowData[]>([]);
  const [browserBusinessId,setBrowserBusinessId]=useState("");
+ const [agentBusinessId,setAgentBusinessId]=useState("");
+ const [agentReply,setAgentReply]=useState<RowData|null>(null);
+ const [agentBusy,setAgentBusy]=useState(false);
  const [browserBusy,setBrowserBusy]=useState(false);
  const [browserMessage,setBrowserMessage]=useState("");
  const [branding,setBranding]=useState<{login_logo_url:string|null;favicon_url:string|null}>({login_logo_url:null,favicon_url:null});
@@ -139,6 +142,25 @@ export default function Home(){
      const history=await action("panel_scans");setScanHistory(history.data||[]);
    }catch(e){setBrowserMessage(e instanceof Error?e.message:"Read-only inspection failed.");}
    finally{setBrowserBusy(false);}
+ }
+ async function runAgentCommand(){
+   const instruction=(moduleForm.instruction||"").trim();
+   if(!instruction){setDataError("Write a question or command first.");return;}
+   if(!agentBusinessId){setDataError("Select an approved client business first.");return;}
+   setAgentBusy(true);setDataError("");setAgentReply(null);
+   try{
+     const {data:{session},error:sessionError}=await supabase.auth.getSession();
+     if(sessionError||!session)throw new Error("Your admin session has expired. Please sign in again.");
+     const response=await fetch(process.env.NEXT_PUBLIC_API_BASE_URL+"/v1/agent/command",{
+       method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+session.access_token},
+       body:JSON.stringify({instruction,business_id:agentBusinessId})
+     });
+     const data=await response.json().catch(()=>({}));
+     if(!response.ok||!data?.ok)throw new Error(data?.error||"AI command failed.");
+     setAgentReply(data.data||null);
+     await loadSection("tasks");
+   }catch(e){setDataError(e instanceof Error?e.message:"AI command failed.");}
+   finally{setAgentBusy(false);}
  }
  async function verify(token:string){
    const response=await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/v1/admin/verify`,{
@@ -286,9 +308,14 @@ export default function Home(){
      <div className="page-heading"><div><p className="eyebrow">{live?"LIVE ADMIN DATA":"AGENT CONFIGURATION"}</p><h1>{titles[active]||placeholders[active]?.title}</h1><p className="subheading">{active==="requests"?"Review business requests and approve or decline access.":active==="businesses"?"Internal records of approved businesses. No client portal or login is created.":active==="connections"?"Paste an Admin Panel URL to inspect public compatibility signals and get a recommended connection route.":active==="tasks"?"Review internal task history and execution states.":active==="security"?"Internal administrator actions and audit trail.":active==="automations"?"Review automation definitions stored in the control plane. Execution remains disabled until the agent runtime is configured.":placeholders[active]?.description}</p></div><span className="date-label">PRIVATE ADMIN AREA</span></div>
      {dataError&&<p className="data-error">{dataError}</p>}
      {active==="tasks" ? <section className="panel data-panel">
-       <div className="panel-heading"><div><h2>Create agent task</h2><p>Queue an instruction for the agent. Queued work is not executed until an approved runtime is connected.</p></div></div>
-       <div className="credit-controls"><label>Task instruction<textarea value={moduleForm.instruction||""} onChange={e=>setModuleForm(v=>({...v,instruction:e.target.value}))} placeholder="Describe the task for the agent" rows={4}/></label><button className="primary-action" disabled={moduleBusy||!(moduleForm.instruction||"").trim()} onClick={()=>void submitModule("create_task",{instruction:moduleForm.instruction}, "tasks")}>{moduleBusy?"Saving…":"Queue task"}</button></div>
-       <div className="panel-heading"><div><h2>Task history</h2><p>Saved requests and completed AI analysis</p></div><button className="small-action" onClick={()=>void loadSection("tasks")}>Refresh</button></div>{renderRows()}
+       <div className="panel-heading"><div><span className="panel-kicker">WEBSITE-AWARE AI ASSISTANT</span><h2>Talk to your AI Agent</h2><p>Select an approved client website, ask questions about its inspected structure, or give the agent a task to analyze. Website changes are not enabled yet.</p></div></div>
+       <div className="credit-controls">
+        <label>Client website<select value={agentBusinessId} onChange={e=>{setAgentBusinessId(e.target.value);setAgentReply(null);}}><option value="">Choose an approved client business</option>{approvedBusinesses.map(b=><option key={b.id} value={b.id}>{b.business_name} — {b.website_url}</option>)}</select></label>
+        <label>Your message<textarea value={moduleForm.instruction||""} onChange={e=>setModuleForm(v=>({...v,instruction:e.target.value}))} placeholder="Example: Explain how this website's admin navigation is organized…" rows={4}/></label>
+        <button className="primary-action" disabled={agentBusy||!(moduleForm.instruction||"").trim()||!agentBusinessId} onClick={()=>void runAgentCommand()}>{agentBusy?"Thinking…":"Send to AI Agent"}</button>
+       </div>
+       {agentReply&&<div className="scan-recommendations"><b>AI Agent response</b><p style={{whiteSpace:"pre-wrap"}}>{agentReply.response}</p><small>{agentReply.model||"AI model"} · Reply saved in task history</small></div>}
+       <div className="panel-heading"><div><h2>Task & conversation history</h2><p>Saved AI replies and queued instructions</p></div><button className="small-action" onClick={()=>void loadSection("tasks")}>Refresh</button></div>{renderRows()}
       </section> : active==="automations" ? <section className="panel data-panel">
        <div className="panel-heading"><div><h2>Create automation</h2><p>New automations are saved disabled and approval-protected. Execution requires a connected runtime.</p></div></div>
        <div className="credit-controls"><label>Approved business ID<input value={moduleForm.business_id||""} onChange={e=>setModuleForm(v=>({...v,business_id:e.target.value}))} placeholder="Business UUID"/></label><label>Automation name<input value={moduleForm.name||""} onChange={e=>setModuleForm(v=>({...v,name:e.target.value}))} placeholder="e.g. Low stock alert"/></label><label>Trigger<select value={moduleForm.trigger_type||"manual"} onChange={e=>setModuleForm(v=>({...v,trigger_type:e.target.value}))}><option value="manual">Manual</option><option value="schedule">Schedule</option><option value="order_created">Order created</option><option value="inventory_low">Low inventory</option></select></label><button className="primary-action" disabled={moduleBusy||!(moduleForm.name||"").trim()||!(moduleForm.business_id||"").trim()} onClick={()=>void submitModule("create_automation",{business_id:moduleForm.business_id,name:moduleForm.name,trigger_type:moduleForm.trigger_type||"manual",description:"Created from admin console"}, "automations")}>Save automation</button></div>
