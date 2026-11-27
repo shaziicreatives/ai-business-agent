@@ -14,7 +14,7 @@ test("health endpoint reports foundation capabilities and security headers", asy
   const data = await response.json();
   assert.equal(response.status, 200);
   assert.equal(data.service, "ai-business-agent-api");
-  assert.equal(data.version, "0.3.0");
+  assert.equal(data.version, "0.4.0");
   assert.equal(data.status, "gateway_foundation");
   assert.equal(response.headers.get("cache-control"), "no-store, max-age=0");
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
@@ -161,4 +161,66 @@ test("AI command rejects requests without an admin bearer token", async () => {
     body: JSON.stringify({ instruction: "Hello" })
   }), env);
   assert.equal(response.status, 401);
+});
+
+
+test("admin panel scanner requires an admin bearer token", async () => {
+  const response = await worker.fetch(new Request("https://api.example/v1/admin/panel-scan", {
+    method: "POST", headers: { Origin: ADMIN_ORIGIN, "Content-Type": "application/json" },
+    body: JSON.stringify({ url: "https://store.example/admin" })
+  }), env);
+  assert.equal(response.status, 401);
+});
+
+test("admin panel scanner rejects localhost and IP literal targets", async () => {
+  const response = await worker.fetch(new Request("https://api.example/v1/admin/panel-scan", {
+    method: "POST", headers: { Origin: ADMIN_ORIGIN, Authorization: "Bearer test-user-jwt", "Content-Type": "application/json" },
+    body: JSON.stringify({ url: "https://127.0.0.1/admin" })
+  }), env);
+  assert.equal(response.status, 400);
+  const data = await response.json();
+  assert.match(data.error, /public website hostname/i);
+});
+
+test("admin panel scanner performs unauthenticated GET-only inspection and stores a report", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (input, init = {}) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.endsWith("/admin-verify")) return new Response(JSON.stringify({ authorized: true }), { status: 200 });
+    if (url.includes("cloudflare-dns.com")) {
+      const type = new URL(url).searchParams.get("type");
+      return new Response(JSON.stringify({ Answer: type === "1" ? [{ type: 1, data: "93.184.216.34" }] : [] }), { status: 200, headers: { "Content-Type": "application/dns-json" } });
+    }
+    if (url === "https://store.example/admin") {
+      return new Response('<html><head><title>Store Admin Login</title></head><body><form><input type="password" name="password"></form></body></html>', {
+        status: 200, headers: { "Content-Type": "text/html; charset=utf-8" }
+      });
+    }
+    if (url.endsWith("/admin-console")) {
+      const saved = JSON.parse(init.body);
+      assert.equal(saved.action, "save_panel_scan");
+      assert.equal(saved.scan.recommended_method, "secure_browser");
+      return new Response(JSON.stringify({ ok: true, data: { id: "scan-123", ...saved.scan }, message: "saved" }), { status: 200 });
+    }
+    throw new Error("Unexpected scanner fetch: " + url);
+  };
+  try {
+    const response = await worker.fetch(new Request("https://api.example/v1/admin/panel-scan", {
+      method: "POST", headers: { Origin: ADMIN_ORIGIN, Authorization: "Bearer test-user-jwt", "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "https://store.example/admin" })
+    }), env);
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.ok, true);
+    assert.equal(data.data.recommended_method, "secure_browser");
+    assert.equal(data.data.scan_report.browser_automation_tested, false);
+    const targetCall = calls.find(call => call.url === "https://store.example/admin");
+    assert.equal(targetCall.init.method, "GET");
+    assert.equal(targetCall.init.headers.authorization, undefined);
+    assert.equal(targetCall.init.headers.cookie, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
