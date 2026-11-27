@@ -379,6 +379,45 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, data, message: "Passive compatibility scan saved. No login or business data was accessed." });
     }
 
+    if (action === "save_browser_inspection") {
+      const scanId = String(body.scan_id || "");
+      const report = body.report && typeof body.report === "object" ? body.report : null;
+      if (!/^[0-9a-fA-F-]{36}$/.test(scanId) || !report) return json({ error: "A valid scan and inspection report are required." }, 400);
+      const { data: existing, error: readError } = await admin.from("admin_panel_scans")
+        .select("id,created_by,scan_report").eq("id", scanId).eq("created_by", actor).single();
+      if (readError || !existing) return json({ error: "Scan report not found for this admin account." }, 404);
+      const safeReport = {
+        inspected_at: new Date().toISOString(),
+        url: typeof report.url === "string" ? report.url.slice(0, 2048) : null,
+        title: typeof report.title === "string" ? report.title.slice(0, 200) : null,
+        headings: Array.isArray(report.headings) ? report.headings.slice(0, 30) : [],
+        links: Array.isArray(report.links) ? report.links.slice(0, 80).map((item: any) => ({
+          text: typeof item.text === "string" ? item.text.slice(0, 120) : "",
+          href: typeof item.href === "string" ? item.href.slice(0, 2048) : ""
+        })) : [],
+        forms: Array.isArray(report.forms) ? report.forms.slice(0, 20) : [],
+        buttons: Array.isArray(report.buttons) ? report.buttons.slice(0, 60) : [],
+        mode: "authenticated_read_only_metadata",
+        no_form_submissions: true,
+        no_button_clicks: true,
+        no_field_values_collected: true
+      };
+      const prior = existing.scan_report && typeof existing.scan_report === "object" ? existing.scan_report : {};
+      const merged = { ...prior, browser_inspection: safeReport };
+      const { data, error } = await admin.from("admin_panel_scans").update({
+        scan_report: merged, scan_status: "completed"
+      }).eq("id", scanId).eq("created_by", actor)
+        .select("id,submitted_url,normalized_url,scan_status,http_status,detected_stack,recommended_method,confidence,findings,recommendations,scan_report,scanned_at,created_at").single();
+      if (error) throw error;
+      const { error: auditError } = await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, action: "admin_panel_authenticated_read_only_inspection",
+        resource_type: "admin_panel_scan", resource_id: scanId, outcome: "success",
+        details: { inspected_url: safeReport.url, headings_count: safeReport.headings.length, links_count: safeReport.links.length, forms_count: safeReport.forms.length, buttons_count: safeReport.buttons.length }
+      });
+      if (auditError) throw auditError;
+      return json({ ok: true, data, message: "Authenticated read-only inspection saved. No forms submitted and no buttons clicked." });
+    }
+
     if (action === "invoices") {
       const [invoiceResult, businessResult] = await Promise.all([
         admin.from("admin_invoices").select("*").order("created_at", { ascending: false }).limit(100),
