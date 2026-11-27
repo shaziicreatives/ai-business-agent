@@ -41,6 +41,7 @@ function statusPayload() {
       public_access_requests: true,
       ai_model: true,
       business_integrations: false,
+      clinic_read_only_summary: true,
       automation_execution: false,
       ai_command_analysis: true,
       admin_panel_compatibility_scan: true,
