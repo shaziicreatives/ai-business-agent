@@ -14,7 +14,7 @@ test("health endpoint reports foundation capabilities and security headers", asy
   const data = await response.json();
   assert.equal(response.status, 200);
   assert.equal(data.service, "ai-business-agent-api");
-  assert.equal(data.version, "0.4.0");
+  assert.equal(data.version, "0.5.0");
   assert.equal(data.status, "gateway_foundation");
   assert.equal(response.headers.get("cache-control"), "no-store, max-age=0");
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
@@ -274,6 +274,104 @@ test("admin panel scanner performs unauthenticated GET-only inspection and store
     assert.equal(targetCall.init.method, "GET");
     assert.equal(targetCall.init.headers.authorization, undefined);
     assert.equal(targetCall.init.headers.cookie, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+
+test("AI command loads only aggregate Ultimate Esthetics data for its approved business", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalRun = env.AI.run;
+  const calls = [];
+  const businessId = "11111111-1111-4111-8111-111111111111";
+  let modelMessages;
+  const connectorEnv = {
+    ...env,
+    ULTIMATE_ESTHETICS_BUSINESS_ID: businessId,
+    ULTIMATE_ESTHETICS_CONNECTOR_URL: "https://clinic.example/api/agent/summary",
+    ULTIMATE_ESTHETICS_CONNECTOR_TOKEN: "x".repeat(64),
+    AI: {
+      run: async (_model, input) => {
+        modelMessages = input.messages;
+        return { response: "There are 8 appointments today.", usage: { prompt_tokens: 90, completion_tokens: 18 } };
+      }
+    }
+  };
+  globalThis.fetch = async (url, init = {}) => {
+    const target = String(url);
+    calls.push({ url: target, init });
+    if (target.endsWith("/admin-verify")) return new Response(JSON.stringify({ authorized: true }), { status: 200 });
+    if (target.endsWith("/admin-console")) {
+      const body = JSON.parse(init.body);
+      if (body.action === "get_agent_context") return new Response(JSON.stringify({
+        ok: true,
+        data: { business: { id: businessId, name: "Ultimate Esthetics", website_url: "https://clinic.example" }, context_status: "website_map_available" }
+      }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true, data: { id: "task-clinic-1" } }), { status: 200 });
+    }
+    if (target === "https://clinic.example/api/agent/summary") {
+      assert.equal(init.method, "POST");
+      assert.equal(init.redirect, "manual");
+      assert.equal(init.headers.authorization, "Bearer " + "x".repeat(64));
+      return new Response(JSON.stringify({
+        ok: true,
+        data: {
+          clinic: "Ultimate Esthetics", date: "2026-11-27", timezone: "Asia/Karachi",
+          total_appointments: 8, checked_in: 2,
+          by_status: { confirmed: 5, pending: 2, done: 1 },
+          data_scope: "aggregate_only", patient_identifiers_included: false,
+          clinical_information_included: false
+        }
+      }), { status: 200 });
+    }
+    throw new Error("Unexpected upstream request: " + target);
+  };
+  try {
+    const response = await worker.fetch(new Request("https://api.example/v1/agent/command", {
+      method: "POST",
+      headers: { Origin: ADMIN_ORIGIN, Authorization: "Bearer test-user-jwt", "Content-Type": "application/json" },
+      body: JSON.stringify({ instruction: "How many appointments are there today?", business_id: businessId })
+    }), connectorEnv);
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.data.response, "There are 8 appointments today.");
+    assert.match(modelMessages[0].content, /APPROVED ULTIMATE ESTHETICS CLINIC SUMMARY/);
+    assert.match(modelMessages[0].content, /"total_appointments":8/);
+    assert.match(modelMessages[0].content, /never provide medical advice/i);
+    assert.equal(calls.filter(call => call.url === "https://clinic.example/api/agent/summary").length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    env.AI.run = originalRun;
+  }
+});
+
+test("Ultimate Esthetics connector is not called for a different business", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const connectorEnv = {
+    ...env,
+    ULTIMATE_ESTHETICS_BUSINESS_ID: "22222222-2222-4222-8222-222222222222",
+    ULTIMATE_ESTHETICS_CONNECTOR_URL: "https://clinic.example/api/agent/summary",
+    ULTIMATE_ESTHETICS_CONNECTOR_TOKEN: "x".repeat(64)
+  };
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push(String(url));
+    if (String(url).endsWith("/admin-verify")) return new Response(JSON.stringify({ authorized: true }), { status: 200 });
+    const body = JSON.parse(init.body);
+    if (body.action === "get_agent_context") return new Response(JSON.stringify({
+      ok: true, data: { business: { id: "11111111-1111-4111-8111-111111111111", name: "Another Business" } }
+    }), { status: 200 });
+    return new Response(JSON.stringify({ ok: true, data: { id: "task-other-1" } }), { status: 200 });
+  };
+  try {
+    const response = await worker.fetch(new Request("https://api.example/v1/agent/command", {
+      method: "POST",
+      headers: { Origin: ADMIN_ORIGIN, Authorization: "Bearer test-user-jwt", "Content-Type": "application/json" },
+      body: JSON.stringify({ instruction: "How many appointments are there today?", business_id: "11111111-1111-4111-8111-111111111111" })
+    }), connectorEnv);
+    assert.equal(response.status, 200);
+    assert.equal(calls.includes("https://clinic.example/api/agent/summary"), false);
   } finally {
     globalThis.fetch = originalFetch;
   }
