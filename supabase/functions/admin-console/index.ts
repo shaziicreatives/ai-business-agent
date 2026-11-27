@@ -80,10 +80,10 @@ Deno.serve(async (req: Request) => {
       const websiteUrl = typeof body.website_url === "string" ? body.website_url.trim().slice(0, 2048) : "";
       const platform = typeof body.platform === "string" ? body.platform.trim().toLowerCase() : "";
       const message = typeof body.message === "string" ? body.message.trim().slice(0, 2000) : "";
-      if (!businessName || !ownerName || !["custom", "shopify", "woocommerce", "wordpress"].includes(platform)) {
-        return json({ error: "Business name, owner reference and a supported platform are required." }, 400);
+      if (!businessName || !ownerName || !contactEmail || !["custom", "shopify", "woocommerce", "wordpress"].includes(platform)) {
+        return json({ error: "Business name, owner reference, owner contact email and a supported platform are required." }, 400);
       }
-      if (contactEmail && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(contactEmail)) return json({ error: "Enter a valid contact email or leave it blank." }, 400);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) return json({ error: "Enter a valid owner contact email." }, 400);
       if (websiteUrl) {
         let parsed: URL;
         try { parsed = new URL(websiteUrl); } catch { return json({ error: "Website URL must be a valid HTTPS URL or left blank." }, 400); }
@@ -95,7 +95,7 @@ Deno.serve(async (req: Request) => {
       if (existing?.length) return json({ error: "A pending request already exists for this business. Refresh the Access Requests list." }, 409);
       const { data, error } = await admin.from("access_requests").insert({
         business_name: businessName, owner_name: ownerName,
-        contact_email: contactEmail || null, contact_phone: contactPhone || null,
+        contact_email: contactEmail, contact_phone: contactPhone || null,
         website_url: websiteUrl || null, platform, message, status: "pending",
         created_at: new Date().toISOString()
       }).select("*").single();
