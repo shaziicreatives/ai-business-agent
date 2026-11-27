@@ -158,9 +158,37 @@ Deno.serve(async (req: Request) => {
     }
 
     if (action === "connections") {
-      const { data, error } = await admin.from("platform_connections").select("id,business_id,platform,external_account_ref,connection_status,granted_scopes,connected_at,last_verified_at,revoked_at,connection_metadata,created_at").order("created_at", { ascending: false }).limit(100);
-      if (error) throw error;
-      return json({ ok: true, data });
+      const [connectionResult, businessResult] = await Promise.all([
+        admin.from("platform_connections").select("id,business_id,platform,external_account_ref,connection_status,granted_scopes,connected_at,last_verified_at,revoked_at,connection_metadata,created_at").order("created_at", { ascending: false }).limit(100),
+        admin.from("authorized_businesses").select("id,business_name,platform,website_url,status").eq("status", "active").order("business_name").limit(200),
+      ]);
+      if (connectionResult.error) throw connectionResult.error;
+      if (businessResult.error) throw businessResult.error;
+      const businessById = new Map((businessResult.data || []).map((business: any) => [business.id, business]));
+      const connectedBusinessIds = new Set((connectionResult.data || []).map((connection: any) => connection.business_id));
+      const existing = (connectionResult.data || []).map((connection: any) => ({
+        ...connection,
+        business_name: businessById.get(connection.business_id)?.business_name || "Unknown business",
+        website_url: businessById.get(connection.business_id)?.website_url || null,
+      }));
+      const notConnected = (businessResult.data || [])
+        .filter((business: any) => !connectedBusinessIds.has(business.id))
+        .map((business: any) => ({
+          id: `not-connected-${business.id}`,
+          business_id: business.id,
+          business_name: business.business_name,
+          platform: business.platform || "custom",
+          external_account_ref: business.website_url || null,
+          website_url: business.website_url || null,
+          connection_status: "not_connected",
+          granted_scopes: [],
+          connected_at: null,
+          last_verified_at: null,
+          revoked_at: null,
+          connection_metadata: {},
+          created_at: null,
+        }));
+      return json({ ok: true, data: [...existing, ...notConnected] });
     }
 
 
