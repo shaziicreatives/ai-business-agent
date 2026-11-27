@@ -197,3 +197,9 @@ html,body{background:#f3f6fc;color:#102344}
 .branding-actions span{font-size:9px;line-height:1.5;color:#75869d}
 .branding-actions .primary-action:disabled{opacity:.5;cursor:not-allowed}
 @media(max-width:650px){.branding-grid{grid-template-columns:1fr;padding-left:12px;padding-right:12px}.branding-panel{padding:15px}.branding-actions{padding-left:12px;padding-right:12px}.branding-actions .primary-action{width:100%}}
+
+
+/* Cleaner records: reduce nested boxes and decorative divider noise */
+.record-list>.request-record{border:0;border-radius:0;box-shadow:none;background:transparent;padding:14px 2px}
+.record-list>.request-record+.request-record{border-top:0}
+.credit-controls select{width:100%;min-height:38px;border:1px solid #dce4ef;border-radius:7px;padding:8px 10px;color:#1b3556;background:#fff;font:inherit}
