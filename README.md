@@ -111,3 +111,12 @@ Admin gateway CORS accepts the stable Pages hostname and deployment aliases for 
 - Scan history is stored in public.admin_panel_scans, with RLS enabled and browser-role table privileges revoked. Only the authenticated private admin Edge Function writes/reads scan records.
 - The first scanner does not log in, collect passwords/OTPs/cookies, access private records, verify API credentials, test browser automation, or change the target website. It is a compatibility preflight, not a completed integration.
 - Added circular transparent favicon and a login logo asset that retains the original Creative Clan mark and wording while keying out the dark image background.
+
+
+## Ultimate Esthetics read-only connector pilot (feature branch)
+
+- Implemented on `feature/ultimate-esthetics-connector`; the default `main` branch is unchanged.
+- Connects to the separate `shaziicreatives/ultimate-esthetics-demo` repository's `feature/ai-integration` branch through a server-to-server bearer secret.
+- First supported operation is an aggregate-only count of today's clinic appointments (Asia/Karachi) and check-ins. No patient identifiers, clinical details, invoices, or write operations are exposed.
+- The AI Worker only calls the connector when the selected approved business UUID exactly matches the configured Ultimate Esthetics business UUID.
+- This is a read-only pilot, not yet deployed or verified end-to-end. See `docs/ultimate-esthetics-connector.md` and the clinic repository's `docs/ai-agent-connector.md` for setup.
