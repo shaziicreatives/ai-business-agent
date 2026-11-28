@@ -30,6 +30,10 @@ The baseline includes an additive compatibility statement for `admin_panel_scans
 
 The separate `20261128101413_preview_admin_branding_storage.sql` migration recreates the existing `admin-branding` Storage bucket metadata and its admin-only upload policy. It copies no branding files or other Storage objects.
 
+
+## Preview Edge Functions restored
+The Preview Supabase project initially had no Edge Functions, while Production had `admin-console`, `admin-verify`, and `submit-access-request`. The three functions were deployed to Preview from the current Production function source. Preview-only copies are stored under `supabase/preview-functions/`; their CORS origin is `*` for the isolated Preview project only. Production function code and deployment were not changed. `admin-console` still validates the bearer token and active `private_admins` role server-side; `admin-verify` keeps JWT verification enabled; `submit-access-request` remains the public request intake endpoint.
+
 ## Rules going forward
 1. Keep the live migration history read-only during Preview work.
 2. Recover the original 16 SQL files from trusted Git history/backups before treating them as the canonical historical migration chain.
