@@ -6,7 +6,7 @@ Status: DESIGN RECORDED — NOT ACTIVE. Preview only.
 The central AI Worker currently verifies Supabase admin JWTs for `/v1/agent/command`. The clinic Admin Portal uses its own D1-backed HttpOnly `admin_token` session. These credentials are not interchangeable. Do not send the clinic cookie to the central Worker or accept browser-supplied identity claims.
 
 ## Proposed trust boundary
-The clinic Pages Function validates its existing session with `getAdminSession` and creates a short-lived HMAC-signed assertion for the central Worker. The assertion is audience-bound, expires within 60 seconds, includes a unique `jti`, and is bound to a Super Admin-approved business UUID and permitted clinic role. The HMAC secret exists only as a Preview secret in both server runtimes.
+The clinic Pages Function validates its existing session with `getAdminSession` and creates a short-lived HMAC-signed assertion for the central Worker. The assertion is audience-bound, expires within 60 seconds, includes a unique `jti`, and is bound to a Super Admin-approved business UUID and permitted clinic role. Only `owner`, `admin`, and `receptionist` may use the initial aggregate-only summary verification. Preserve the signed role and do not elevate privileges. Future actions must be checked against the user's current clinic permissions. The HMAC secret exists only as a Preview secret in both server runtimes.
 
 The central Worker validates the signature and all claims, rejects replay, then independently verifies the business is active and that Super Admin capability/action permissions and credits are enabled. It must never infer approval from the owner's consent alone.
 
@@ -40,17 +40,18 @@ The current `consume_ai_credits` RPC deducts a fixed amount immediately. It is n
 
 ## Preview-only configuration
 Configure secrets only in isolated Preview runtimes:
-- `AI_AGENT_BRIDGE_SECRET` on clinic Pages Preview and central AI Preview Worker (same random value, at least 32 bytes).
-- `AI_AGENT_WORKER_URL` on clinic Pages Preview, pointing to the exact Preview Worker.
-- `AI_AGENT_BUSINESS_ID` only after Super Admin approval, on the clinic Pages Preview.
+- `AI_AGENT_BRIDGE_HMAC_SECRET` on clinic Pages Preview and `CLINIC_BRIDGE_HMAC_SECRET` on central AI Preview Worker (same random value, at least 32 bytes).
+- `AI_AGENT_BUSINESS_ID=c55320e8-972d-48fd-be83-649c5d865df5` on clinic Pages Preview (approved business UUID).
+- `SUPABASE_SERVICE_ROLE_KEY` only on central AI Preview Worker, as a secret.
 - Any server-side Supabase credential only in the central Preview Worker secret store, never in browser code.
 
 Do not use production secrets or production database bindings.
 
 ## Current state / hard blockers
-- No Ultimate Esthetics business row currently exists in Supabase `authorized_businesses`.
-- Super Admin approval and capability grant are pending.
-- Preview credits are not confirmed.
+- Ultimate Esthetics business row is active and its Access Request is approved.
+- No AI credits have been allocated and no platform connection record exists.
+- Clinic Preview is missing `AI_AGENT_BUSINESS_ID` and `AI_AGENT_BRIDGE_HMAC_SECRET`.
+- Central Preview Worker is missing `CLINIC_BRIDGE_HMAC_SECRET` and `SUPABASE_SERVICE_ROLE_KEY`.
 - No atomic reservation/settlement/release lifecycle is in place.
 - Do not activate the endpoint or call Workers AI until all gates and tests pass.
 
