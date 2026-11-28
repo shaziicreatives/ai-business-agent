@@ -28,6 +28,8 @@ The feature branch did not contain the source SQL for those 16 applied migration
 
 The baseline includes an additive compatibility statement for `admin_panel_scans.business_id` because the older repository-only migration creates that table without this later live column.
 
+The separate `20261128101413_preview_admin_branding_storage.sql` migration recreates the existing `admin-branding` Storage bucket metadata and its admin-only upload policy. It copies no branding files or other Storage objects.
+
 ## Rules going forward
 1. Keep the live migration history read-only during Preview work.
 2. Recover the original 16 SQL files from trusted Git history/backups before treating them as the canonical historical migration chain.
