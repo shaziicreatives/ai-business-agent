@@ -79,7 +79,7 @@ async function verifyClinicAssertion(token, secret) {
   if (!valid) throw new Error("Invalid clinic assertion signature.");
   const now = Math.floor(Date.now() / 1000);
   if (claims.iss !== "ultimate-esthetics-clinic" || claims.aud !== "creative-clan-ai-agent" ||
-      claims.role !== "admin" || claims.scope !== "clinic:summary:read" || !claims.sub ||
+      !["owner", "admin", "receptionist"].includes(String(claims.role || "").toLowerCase()) || claims.scope !== "clinic:summary:read" || !claims.sub ||
       !/^[0-9a-fA-F-]{36}$/.test(String(claims.business_id || "")) ||
       !/^[0-9a-fA-F-]{36}$/.test(String(claims.jti || "")) ||
       !Number.isInteger(claims.iat) || !Number.isInteger(claims.exp) ||
