@@ -1,0 +1,723 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
+
+const cors = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+  status, headers: { ...cors, "Content-Type": "application/json" },
+});
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
+  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  const url = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const authHeader = req.headers.get("Authorization") || "";
+  const token = authHeader.replace(/^Bearer\s+/i, "");
+  if (!token) return json({ error: "Unauthorized" }, 401);
+
+  const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  const { data: userData, error: userError } = await admin.auth.getUser(token);
+  if (userError || !userData.user) return json({ error: "Invalid session" }, 401);
+
+  const { data: adminRecord, error: adminError } = await admin
+    .from("private_admins").select("role,is_active")
+    .eq("auth_user_id", userData.user.id).maybeSingle();
+  if (adminError || !adminRecord?.is_active || !["owner", "admin", "operator"].includes(adminRecord.role)) {
+    return json({ error: "Admin access denied" }, 403);
+  }
+
+  try {
+    const body = await req.json().catch(() => ({}));
+    const action = body.action;
+    const actor = userData.user.id;
+
+    if (action === "save_branding") {
+      const loginLogoUrl = typeof body.login_logo_url === "string" ? body.login_logo_url.slice(0, 2048) : null;
+      const faviconUrl = typeof body.favicon_url === "string" ? body.favicon_url.slice(0, 2048) : null;
+      for (const value of [loginLogoUrl, faviconUrl]) {
+        if (value !== null) {
+          let parsed: URL;
+          try { parsed = new URL(value); } catch { return json({ error: "Branding asset URL is invalid." }, 400); }
+          if (parsed.protocol !== "https:" || !parsed.hostname || !parsed.pathname.includes("/storage/v1/object/public/admin-branding/brand-assets/")) {
+            return json({ error: "Branding assets must be uploaded to the approved public branding storage." }, 400);
+          }
+        }
+      }
+      const { data, error } = await admin.from("admin_branding").upsert({
+        id: true, login_logo_url: loginLogoUrl, favicon_url: faviconUrl,
+        updated_by: actor, updated_at: new Date().toISOString()
+      }, { onConflict: "id" }).select("login_logo_url,favicon_url,updated_at").single();
+      if (error) throw error;
+      await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, action: "admin_branding_updated", resource_type: "admin_branding",
+        resource_id: "true", outcome: "success",
+        details: { login_logo_updated: Boolean(loginLogoUrl), favicon_updated: Boolean(faviconUrl) }
+      });
+      return json({ ok: true, data, message: "Branding settings saved." });
+    }
+
+    if (action === "overview") {
+      const [requests, businesses, connections, tasks] = await Promise.all([
+        admin.from("access_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
+        admin.from("authorized_businesses").select("id", { count: "exact", head: true }).eq("status", "active"),
+        admin.from("platform_connections").select("id", { count: "exact", head: true }).eq("connection_status", "active"),
+        admin.from("admin_agent_tasks").select("id", { count: "exact", head: true }),
+      ]);
+      const errors = [requests, businesses, connections, tasks].filter(x => x.error);
+      if (errors.length) throw errors[0].error;
+      return json({ ok: true, counts: { pending_requests: requests.count || 0, businesses: businesses.count || 0, connections: connections.count || 0, tasks: tasks.count || 0 } });
+    }
+
+    if (action === "requests") {
+      const { data, error } = await admin.from("access_requests").select("*").order("created_at", { ascending: false }).limit(100);
+      if (error) throw error;
+      return json({ ok: true, data });
+    }
+
+    if (action === "review_request") {
+      const id = String(body.id || "");
+      const decision = body.decision;
+      const notes = typeof body.notes === "string" ? body.notes.slice(0, 1000) : null;
+      if (!id || !["approve", "decline"].includes(decision)) return json({ error: "Invalid review request" }, 400);
+      const { data: request, error: readError } = await admin.from("access_requests").select("*").eq("id", id).single();
+      if (readError) throw readError;
+      if (request.status !== "pending" && request.status !== "under_review") return json({ error: "This request has already been reviewed" }, 409);
+
+      if (decision === "approve") {
+        const { error: businessError } = await admin.from("authorized_businesses").upsert({
+          access_request_id: id,
+          business_name: request.business_name,
+          owner_name: request.owner_name,
+          contact_email: request.contact_email,
+          website_url: request.website_url,
+          platform: request.platform,
+          status: "active",
+          approved_by: actor,
+          approved_at: new Date().toISOString(),
+          internal_notes: notes,
+        }, { onConflict: "access_request_id" });
+        if (businessError) throw businessError;
+      }
+      const nextStatus = decision === "approve" ? "approved" : "declined";
+      const { error: updateError } = await admin.from("access_requests").update({
+        status: nextStatus, reviewed_by: actor, reviewed_at: new Date().toISOString(), review_notes: notes,
+      }).eq("id", id);
+      if (updateError) throw updateError;
+      await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, action: nextStatus, resource_type: "access_request", resource_id: id,
+        outcome: "success", details: { business_name: request.business_name },
+      });
+      return json({ ok: true, status: nextStatus });
+    }
+
+    if (action === "businesses") {
+      const { data, error } = await admin.from("authorized_businesses").select("*").order("created_at", { ascending: false }).limit(100);
+      if (error) throw error;
+      return json({ ok: true, data });
+    }
+
+    if (action === "connections") {
+      const [connectionResult, businessResult] = await Promise.all([
+        admin.from("platform_connections")
+          .select("id,business_id,platform,external_account_ref,connection_status,granted_scopes,connected_at,last_verified_at,revoked_at,connection_metadata,created_at")
+          .order("created_at", { ascending: false }).limit(100),
+        admin.from("authorized_businesses")
+          .select("id,business_name,platform,website_url,status")
+          .eq("status", "active").order("business_name").limit(200),
+      ]);
+      if (connectionResult.error) throw connectionResult.error;
+      if (businessResult.error) throw businessResult.error;
+      const businessById = new Map((businessResult.data || []).map((business: any) => [business.id, business]));
+      const connectedBusinessIds = new Set((connectionResult.data || []).map((connection: any) => connection.business_id));
+      const existing = (connectionResult.data || []).map((connection: any) => ({
+        ...connection,
+        business_name: businessById.get(connection.business_id)?.business_name || "Unknown business",
+        website_url: businessById.get(connection.business_id)?.website_url || null,
+      }));
+      const notConnected = (businessResult.data || [])
+        .filter((business: any) => !connectedBusinessIds.has(business.id))
+        .map((business: any) => ({
+          id: `not-connected-${business.id}`,
+          business_id: business.id,
+          business_name: business.business_name,
+          platform: business.platform || "custom",
+          external_account_ref: business.website_url || null,
+          website_url: business.website_url || null,
+          connection_status: "not_connected",
+          granted_scopes: [],
+          connected_at: null,
+          last_verified_at: null,
+          revoked_at: null,
+          connection_metadata: {},
+          created_at: null,
+        }));
+      return json({ ok: true, data: [...existing, ...notConnected] });
+    }
+
+    if (action === "start_connection_setup") {
+      const businessId = String(body.business_id || "");
+      const platform = String(body.platform || "").toLowerCase();
+      const domainInput = String(body.domain || "").trim();
+      const method = String(body.method || "");
+      const notes = typeof body.notes === "string" ? body.notes.trim().slice(0, 500) : "";
+      const allowed = {
+        shopify: ["oauth"],
+        woocommerce: ["rest_api"],
+        hostinger: ["wordpress_plugin", "custom_api"],
+        custom: ["custom_api"]
+      } as Record<string, string[]>;
+      if (!businessId || !Object.prototype.hasOwnProperty.call(allowed, platform) || !allowed[platform].includes(method)) {
+        return json({ error: "Choose a supported platform and its matching connection method." }, 400);
+      }
+      let parsed: URL;
+      try { parsed = new URL(domainInput.includes("://") ? domainInput : "https://" + domainInput); }
+      catch { return json({ error: "Enter a valid website domain." }, 400); }
+      if (parsed.protocol !== "https:" || parsed.username || parsed.password || !parsed.hostname || parsed.hostname.includes("..")) {
+        return json({ error: "Use a valid HTTPS website domain without credentials." }, 400);
+      }
+      const domain = parsed.hostname.toLowerCase();
+      if (platform === "shopify" && !domain.endsWith(".myshopify.com")) {
+        return json({ error: "For Shopify, enter the store's myshopify.com domain." }, 400);
+      }
+      const { data: business, error: businessError } = await admin.from("authorized_businesses")
+        .select("id,business_name,status").eq("id", businessId).single();
+      if (businessError || !business || business.status !== "active") {
+        return json({ error: "Select an approved, active business first." }, 400);
+      }
+      const now = new Date().toISOString();
+      const { data, error } = await admin.from("platform_connections").upsert({
+        business_id: businessId,
+        platform,
+        external_account_ref: domain,
+        connection_status: "pending",
+        granted_scopes: [],
+        connected_at: null,
+        last_verified_at: null,
+        revoked_at: null,
+        connection_metadata: {
+          setup_method: method,
+          setup_status: "awaiting_platform_authorization",
+          setup_notes: notes,
+          requested_by: actor,
+          requested_at: now,
+          credentials_stored: false,
+          authorization_complete: false
+        },
+        updated_at: now
+      }, { onConflict: "business_id,platform,external_account_ref" })
+        .select("id,business_id,platform,external_account_ref,connection_status,granted_scopes,connection_metadata,created_at").single();
+      if (error) throw error;
+      const { error: auditError } = await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, business_id: businessId, action: "platform_connection_setup_started",
+        resource_type: "platform_connection", resource_id: data.id, outcome: "success",
+        details: { platform, domain, method, business_name: business.business_name }
+      });
+      if (auditError) throw auditError;
+      return json({ ok: true, data, message: "Setup request saved. The platform authorization flow is not complete yet." });
+    }
+
+    if (action === "cancel_connection_setup") {
+      const id = String(body.id || "");
+      if (!id) return json({ error: "Connection record is required." }, 400);
+      const { data, error } = await admin.from("platform_connections")
+        .update({ connection_status: "revoked", revoked_at: new Date().toISOString(),
+          connection_metadata: { setup_status: "cancelled", cancelled_by: actor, credentials_stored: false } })
+        .eq("id", id).neq("connection_status", "active")
+        .select("id,business_id,platform,connection_status").maybeSingle();
+      if (error) throw error;
+      if (!data) return json({ error: "Only pending or inactive setup records can be cancelled here." }, 409);
+      await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, business_id: data.business_id, action: "platform_connection_setup_cancelled",
+        resource_type: "platform_connection", resource_id: id, outcome: "success",
+        details: { platform: data.platform }
+      });
+      return json({ ok: true, data });
+    }
+
+    if (action === "get_agent_context") {
+      const businessId = String(body.business_id || "");
+      if (!/^[0-9a-fA-F-]{36}$/.test(businessId)) return json({ error: "Select a valid approved client business." }, 400);
+      const { data: business, error: businessError } = await admin.from("authorized_businesses")
+        .select("id,business_name,owner_name,website_url,platform,status")
+        .eq("id", businessId).eq("status", "active").maybeSingle();
+      if (businessError) throw businessError;
+      if (!business) return json({ error: "This client business is not active or authorized." }, 403);
+      const { data: scan, error: scanError } = await admin.from("admin_panel_scans")
+        .select("id,normalized_url,scan_status,scan_report,created_at")
+        .eq("business_id", businessId).eq("created_by", actor)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (scanError) throw scanError;
+      const report = scan?.scan_report && typeof scan.scan_report === "object" ? scan.scan_report : {};
+      const inspection = report.browser_inspection && typeof report.browser_inspection === "object" ? report.browser_inspection : {};
+      const websiteMap = report.website_map && typeof report.website_map === "object" ? report.website_map : null;
+      const safeInspection = {
+        url: typeof inspection.url === "string" ? inspection.url.slice(0, 2048) : scan?.normalized_url || business.website_url,
+        title: typeof inspection.title === "string" ? inspection.title.slice(0, 200) : "",
+        headings: Array.isArray(inspection.headings) ? inspection.headings.slice(0, 30).map((x: any) => String(x).slice(0, 160)) : [],
+        links: Array.isArray(inspection.links) ? inspection.links.slice(0, 80).map((x: any) => ({ text: String(x?.text || "").slice(0, 120), href: String(x?.href || "").slice(0, 2048) })) : [],
+        buttons: Array.isArray(inspection.buttons) ? inspection.buttons.slice(0, 60).map((x: any) => ({ text: String(x?.text || "").slice(0, 120), disabled: Boolean(x?.disabled) })) : [],
+        forms: Array.isArray(inspection.forms) ? inspection.forms.slice(0, 20).map((x: any) => ({ action: String(x?.action || "").slice(0, 2048), method: String(x?.method || "").slice(0, 20), field_count: Array.isArray(x?.fields) ? x.fields.length : null })) : []
+      };
+      const safeMap = websiteMap ? {
+        page_title: String(websiteMap.page_title || "").slice(0, 200),
+        page_url: String(websiteMap.page_url || "").slice(0, 2048),
+        sections: Array.isArray(websiteMap.sections) ? websiteMap.sections.slice(0, 30).map((x: any) => ({ name: String(x?.name || "").slice(0, 120), verified: false })) : [],
+        navigation: Array.isArray(websiteMap.navigation) ? websiteMap.navigation.slice(0, 80).map((x: any) => ({ label: String(x?.label || "").slice(0, 120), href: String(x?.href || "").slice(0, 2048), category: String(x?.category || "unclassified").slice(0, 60) })) : [],
+        buttons: Array.isArray(websiteMap.buttons) ? websiteMap.buttons.slice(0, 60).map((x: any) => ({ label: String(x?.label || "").slice(0, 120), category: String(x?.category || "unclassified").slice(0, 60), status: String(x?.status || "function_not_yet_verified").slice(0, 60) })) : [],
+        readiness: String(websiteMap.readiness || "not_assessed").slice(0, 80),
+        limitations: Array.isArray(websiteMap.limitations) ? websiteMap.limitations.slice(0, 8).map((x: any) => String(x).slice(0, 240)) : []
+      } : null;
+      return json({ ok: true, data: {
+        business: { id: business.id, name: business.business_name, owner: business.owner_name, website_url: business.website_url, platform: business.platform },
+        website: scan ? { scan_id: scan.id, url: scan.normalized_url, scan_status: scan.scan_status, inspected_at: inspection.inspected_at || null, inspection: safeInspection, website_map: safeMap } : null,
+        context_status: scan ? (safeMap ? "website_map_available" : (inspection.title || inspection.headings.length ? "inspection_available_map_not_saved" : "scan_only_no_authenticated_inspection")) : "no_saved_scan"
+      } });
+    }
+
+    if (action === "create_task") {
+      const instruction = typeof body.instruction === "string" ? body.instruction.trim() : "";
+      if (!instruction || instruction.length > 4000) return json({ error: "Enter a task instruction (1–4000 characters)." }, 400);
+      const ai = body.ai_result && typeof body.ai_result === "object" ? body.ai_result : null;
+      const now = new Date().toISOString();
+      const { data: task, error: taskError } = await admin.from("admin_agent_tasks").insert({
+        task_type: ai ? "assistant_command" : "admin_instruction",
+        status: ai ? "completed" : "queued",
+        input: { instruction, submitted_via: "private_admin_console", business_id: typeof body.business_id === "string" ? body.business_id : null },
+        output: ai ? { response: String(ai.response || ""), model: String(ai.model || ""), usage: {
+          input_tokens: Number(ai.input_tokens || 0), output_tokens: Number(ai.output_tokens || 0),
+          neurons_estimate: Number(ai.neurons_estimate || 0), usage_available: Boolean(ai.usage_available)
+        } } : null,
+        started_at: ai ? now : null,
+        completed_at: ai ? now : null,
+        requires_approval: false
+      }).select("*").single();
+      if (taskError) throw taskError;
+      if (ai) {
+        const { error: usageError } = await admin.from("usage_records").insert({
+          task_id: task.id, provider: "cloudflare_workers_ai", model: String(ai.model || "@cf/zai-org/glm-4.7-flash"),
+          input_units: Number(ai.input_tokens || 0), output_units: Number(ai.output_tokens || 0),
+          estimated_cost: 0, currency: "USD",
+          metadata: { neurons_estimate: Number(ai.neurons_estimate || 0), free_tier: true, usage_available: Boolean(ai.usage_available) }
+        });
+        if (usageError) throw usageError;
+      }
+      const { error: auditError } = await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, action: ai ? "ai_command_analyzed" : "task_queued", resource_type: "admin_agent_task",
+        resource_id: task.id, outcome: "success",
+        details: { task_type: task.task_type, status: task.status }
+      });
+      if (auditError) throw auditError;
+      return json({ ok: true, data: task, message: ai ? "AI response generated and saved." : "Task safely queued. Execution is not enabled yet." });
+    }
+
+    if (action === "tasks") {
+      const { data, error } = await admin.from("admin_agent_tasks").select("*").order("created_at", { ascending: false }).limit(100);
+      if (error) throw error;
+      return json({ ok: true, data });
+    }
+
+    if (action === "automations") {
+      const { data, error } = await admin.from("automation_definitions")
+        .select("id,business_id,name,description,trigger_type,trigger_config,is_enabled,requires_approval,created_at,updated_at")
+        .order("created_at", { ascending: false }).limit(100);
+      if (error) throw error;
+      return json({ ok: true, data });
+    }
+
+    if (action === "credits") {
+      const [businesses, accounts] = await Promise.all([
+        admin.from("authorized_businesses").select("id,business_name,owner_name,contact_email,platform,status").order("created_at", { ascending: false }).limit(200),
+        admin.from("ai_credit_accounts").select("business_id,monthly_quota,available_credits,used_this_period,low_balance_threshold,period_started_at,period_ends_at,is_blocked,block_reason,updated_at")
+      ]);
+      if (businesses.error) throw businesses.error;
+      if (accounts.error) throw accounts.error;
+      const byBusiness = new Map((accounts.data || []).map((account: any) => [account.business_id, account]));
+      const data = (businesses.data || []).map((business: any) => ({
+        business_id: business.id, business,
+        monthly_quota: 0, available_credits: 0, used_this_period: 0,
+        low_balance_threshold: 0, is_blocked: false, block_reason: null,
+        ...(byBusiness.get(business.id) || {})
+      }));
+      return json({ ok: true, data });
+    }
+
+    if (action === "credit_history") {
+      const businessId = String(body.business_id || "");
+      if (!businessId) return json({ error: "Business is required." }, 400);
+      const { data, error } = await admin.from("ai_credit_ledger")
+        .select("id,entry_type,amount,balance_after,reason,actor_user_id,created_at")
+        .eq("business_id", businessId).order("created_at", { ascending: false }).limit(30);
+      if (error) throw error;
+      return json({ ok: true, data });
+    }
+
+    if (action === "set_credit_quota") {
+      const businessId = String(body.business_id || "");
+      const quota = Number(body.monthly_quota);
+      const threshold = Number(body.low_balance_threshold ?? Math.floor(quota * 0.2));
+      if (!businessId || !Number.isSafeInteger(quota) || quota < 0 || quota > 1000000000 ||
+          !Number.isSafeInteger(threshold) || threshold < 0 || threshold > quota) {
+        return json({ error: "Enter a valid quota and low-balance threshold." }, 400);
+      }
+      const { data, error } = await admin.from("ai_credit_accounts").upsert({
+        business_id: businessId, monthly_quota: quota, low_balance_threshold: threshold,
+        updated_at: new Date().toISOString()
+      }, { onConflict: "business_id" }).select("*").single();
+      if (error) throw error;
+      const { error: auditError } = await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, business_id: businessId, action: "ai_credit_quota_set",
+        resource_type: "ai_credit_account", resource_id: businessId, outcome: "success",
+        details: { monthly_quota: quota, low_balance_threshold: threshold }
+      });
+      if (auditError) throw auditError;
+      return json({ ok: true, data });
+    }
+
+    if (action === "top_up_credits") {
+      const businessId = String(body.business_id || "");
+      const amount = Number(body.amount);
+      const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 500) : "";
+      if (!businessId || !Number.isSafeInteger(amount) || amount <= 0 || amount > 1000000000 || reason.length < 3) {
+        return json({ error: "Enter a valid business, positive credit amount and reason." }, 400);
+      }
+      const idempotencyKey = typeof body.idempotency_key === "string" && body.idempotency_key.length >= 8
+        ? body.idempotency_key : crypto.randomUUID();
+      const { data: result, error } = await admin.rpc("admin_add_ai_credits", {
+        p_business_id: businessId, p_amount: amount, p_entry_type: "top_up",
+        p_reason: reason, p_actor_user_id: actor, p_idempotency_key: idempotencyKey
+      });
+      if (error) throw error;
+      const { error: auditError } = await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, business_id: businessId, action: "ai_credits_topped_up",
+        resource_type: "ai_credit_ledger", outcome: "success",
+        details: { amount, reason, balance_after: result.balance, ledger_id: result.ledger_id, duplicate: result.duplicate }
+      });
+      if (auditError) throw auditError;
+      return json({ ok: true, data: result });
+    }
+
+    if (action === "usage") {
+      const { data, error } = await admin.from("usage_records")
+        .select("id,business_id,task_id,provider,model,input_units,output_units,estimated_cost,currency,metadata,recorded_at")
+        .order("recorded_at", { ascending: false }).limit(100);
+      if (error) throw error;
+      return json({ ok: true, data });
+    }
+
+    if (action === "audit") {
+      const { data, error } = await admin.from("admin_audit_events").select("*").order("created_at", { ascending: false }).limit(100);
+      if (error) throw error;
+      return json({ ok: true, data });
+    }
+
+
+    if (action === "create_browser_session") {
+      const scanId = String(body.scan_id || "");
+      const businessId = String(body.business_id || "");
+      const sessionHash = String(body.session_hash || "").toLowerCase();
+      const targetUrl = String(body.target_url || "");
+      if (!/^[0-9a-fA-F-]{36}$/.test(scanId) || !/^[0-9a-fA-F-]{36}$/.test(businessId) ||
+          !/^[a-f0-9]{64}$/.test(sessionHash)) {
+        return json({ error: "A valid scan, business and browser session reference are required." }, 400);
+      }
+      let target: URL;
+      try { target = new URL(targetUrl); } catch { return json({ error: "Invalid browser target URL." }, 400); }
+      if (target.protocol !== "https:" || target.username || target.password) {
+        return json({ error: "Only HTTPS browser targets without embedded credentials are allowed." }, 400);
+      }
+      const [{ data: scan, error: scanError }, { data: business, error: businessError }] = await Promise.all([
+        admin.from("admin_panel_scans").select("id,created_by,normalized_url,business_id")
+          .eq("id", scanId).eq("created_by", actor).maybeSingle(),
+        admin.from("authorized_businesses").select("id,business_name,website_url,status")
+          .eq("id", businessId).maybeSingle()
+      ]);
+      if (scanError || !scan) return json({ error: "Scan report not found for this admin account." }, 404);
+      if (businessError || !business || business.status !== "active") return json({ error: "Choose an approved active client business." }, 400);
+      let scanHost = "", businessHost = "";
+      try { scanHost = new URL(scan.normalized_url).hostname.toLowerCase(); } catch {}
+      try { businessHost = new URL(String(business.website_url || "").includes("://") ? business.website_url : "https://" + business.website_url).hostname.toLowerCase(); } catch {}
+      if (!scanHost || scanHost !== target.hostname.toLowerCase() || !businessHost || businessHost !== scanHost) {
+        return json({ error: "The scan URL, browser target and approved client's registered website must match exactly." }, 403);
+      }
+      if (scan.business_id && scan.business_id !== businessId) return json({ error: "This scan is already linked to a different client business." }, 409);
+      const { error: linkError } = await admin.from("admin_panel_scans").update({ business_id: businessId })
+        .eq("id", scanId).eq("created_by", actor);
+      if (linkError) throw linkError;
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      const { data, error } = await admin.from("admin_browser_sessions").insert({
+        actor_user_id: actor, business_id: businessId, scan_id: scanId,
+        session_hash: sessionHash, target_url: target.toString(), status: "active", expires_at: expiresAt
+      }).select("id,business_id,scan_id,target_url,status,expires_at").single();
+      if (error) throw error;
+      await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, business_id: businessId, action: "browser_session_created",
+        resource_type: "admin_browser_session", resource_id: data.id, outcome: "success",
+        details: { scan_id: scanId, target_host: scanHost, expires_at: expiresAt, raw_session_id_stored: false }
+      });
+      return json({ ok: true, data, message: "Short-lived browser session registered for this admin, client and website." });
+    }
+
+    if (action === "verify_browser_session") {
+      const sessionHash = String(body.session_hash || "").toLowerCase();
+      const scanId = String(body.scan_id || "");
+      if (!/^[a-f0-9]{64}$/.test(sessionHash) || !/^[0-9a-fA-F-]{36}$/.test(scanId)) {
+        return json({ error: "Invalid browser session reference." }, 400);
+      }
+      const now = new Date().toISOString();
+      const { data, error } = await admin.from("admin_browser_sessions")
+        .select("id,business_id,scan_id,target_url,status,expires_at")
+        .eq("session_hash", sessionHash).eq("actor_user_id", actor).eq("scan_id", scanId)
+        .eq("status", "active").gt("expires_at", now).maybeSingle();
+      if (error) throw error;
+      if (!data) return json({ error: "Browser session is expired, already used, or not owned by this admin and scan." }, 403);
+      const { data: business, error: businessError } = await admin.from("authorized_businesses")
+        .select("id,status").eq("id", data.business_id).maybeSingle();
+      if (businessError) throw businessError;
+      if (!business || business.status !== "active") return json({ error: "Client authorization is no longer active." }, 403);
+      return json({ ok: true, data });
+    }
+
+    if (action === "complete_browser_session") {
+      const sessionHash = String(body.session_hash || "").toLowerCase();
+      const scanId = String(body.scan_id || "");
+      if (!/^[a-f0-9]{64}$/.test(sessionHash) || !/^[0-9a-fA-F-]{36}$/.test(scanId)) {
+        return json({ error: "Invalid browser session reference." }, 400);
+      }
+      const now = new Date().toISOString();
+      const { data, error } = await admin.from("admin_browser_sessions").update({
+        status: "inspected", inspected_at: now, closed_at: now
+      }).eq("session_hash", sessionHash).eq("actor_user_id", actor).eq("scan_id", scanId)
+        .eq("status", "active").gt("expires_at", now)
+        .select("id,business_id,scan_id").maybeSingle();
+      if (error) throw error;
+      if (!data) return json({ error: "Browser session could not be completed; it may have expired or already been used." }, 409);
+      await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, business_id: data.business_id, action: "browser_session_inspected",
+        resource_type: "admin_browser_session", resource_id: data.id, outcome: "success",
+        details: { scan_id: data.scan_id, session_id_persisted_as_hash: true }
+      });
+      return json({ ok: true, data });
+    }
+
+    if (action === "panel_scans") {
+      const { data, error } = await admin.from("admin_panel_scans")
+        .select("id,submitted_url,normalized_url,scan_status,http_status,detected_stack,recommended_method,confidence,findings,recommendations,scan_report,scanned_at,created_at")
+        .eq("created_by", actor).order("created_at", { ascending: false }).limit(25);
+      if (error) throw error;
+      return json({ ok: true, data });
+    }
+
+    if (action === "save_panel_scan") {
+      const scan = body.scan && typeof body.scan === "object" ? body.scan : {};
+      const submittedUrl = typeof scan.submitted_url === "string" ? scan.submitted_url.trim().slice(0, 2048) : "";
+      const normalizedUrl = typeof scan.normalized_url === "string" ? scan.normalized_url.trim().slice(0, 2048) : "";
+      const scanStatus = ["completed", "blocked", "failed"].includes(scan.scan_status) ? scan.scan_status : "failed";
+      const recommendedMethod = ["api", "secure_browser", "additional_access", "manual_review"].includes(scan.recommended_method) ? scan.recommended_method : "manual_review";
+      const confidence = ["low", "medium", "high"].includes(scan.confidence) ? scan.confidence : "low";
+      const httpStatus = Number.isInteger(scan.http_status) && scan.http_status >= 100 && scan.http_status <= 599 ? scan.http_status : null;
+      const detectedStack = typeof scan.detected_stack === "string" ? scan.detected_stack.slice(0, 160) : null;
+      const findings = Array.isArray(scan.findings) ? scan.findings.slice(0, 20) : [];
+      const recommendations = Array.isArray(scan.recommendations) ? scan.recommendations.slice(0, 20) : [];
+      const report = scan.scan_report && typeof scan.scan_report === "object" ? scan.scan_report : {};
+      if (!submittedUrl || !normalizedUrl) return json({ error: "A valid scan URL is required." }, 400);
+      const { data, error } = await admin.from("admin_panel_scans").insert({
+        created_by: actor, submitted_url: submittedUrl, normalized_url: normalizedUrl,
+        scan_status: scanStatus, http_status: httpStatus, detected_stack: detectedStack,
+        recommended_method: recommendedMethod, confidence, findings, recommendations,
+        scan_report: report, scanned_at: new Date().toISOString()
+      }).select("id,submitted_url,normalized_url,scan_status,http_status,detected_stack,recommended_method,confidence,findings,recommendations,scan_report,scanned_at,created_at").single();
+      if (error) throw error;
+      const { error: auditError } = await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, action: "admin_panel_compatibility_scanned",
+        resource_type: "admin_panel_scan", resource_id: data.id, outcome: "success",
+        details: { hostname: new URL(normalizedUrl).hostname, recommended_method: recommendedMethod, confidence, scan_status: scanStatus }
+      });
+      if (auditError) throw auditError;
+      return json({ ok: true, data, message: "Passive compatibility scan saved. No login or business data was accessed." });
+    }
+
+    if (action === "save_browser_inspection") {
+      const scanId = String(body.scan_id || "");
+      const report = body.report && typeof body.report === "object" ? body.report : null;
+      if (!/^[0-9a-fA-F-]{36}$/.test(scanId) || !report) return json({ error: "A valid scan and inspection report are required." }, 400);
+      const { data: selectedScan, error: readError } = await admin.from("admin_panel_scans")
+        .select("id,created_by,normalized_url").eq("id", scanId).eq("created_by", actor).single();
+      if (readError || !selectedScan) return json({ error: "Scan report not found for this admin account." }, 404);
+      // Keep one current website map per admin + normalized website URL.
+      // Store/update it on the newest existing scan row for that URL; never insert a map row.
+      const { data: existing, error: canonicalError } = await admin.from("admin_panel_scans")
+        .select("id,created_by,scan_report,normalized_url")
+        .eq("created_by", actor).eq("normalized_url", selectedScan.normalized_url)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (canonicalError || !existing) return json({ error: "Could not find the canonical scan record for this website." }, 404);
+      const safeReport = {
+        inspected_at: new Date().toISOString(),
+        url: typeof report.url === "string" ? report.url.slice(0, 2048) : null,
+        title: typeof report.title === "string" ? report.title.slice(0, 200) : null,
+        headings: Array.isArray(report.headings) ? report.headings.slice(0, 30) : [],
+        links: Array.isArray(report.links) ? report.links.slice(0, 80).map((item: any) => ({
+          text: typeof item.text === "string" ? item.text.slice(0, 120) : "",
+          href: typeof item.href === "string" ? item.href.slice(0, 2048) : ""
+        })) : [],
+        forms: Array.isArray(report.forms) ? report.forms.slice(0, 20) : [],
+        buttons: Array.isArray(report.buttons) ? report.buttons.slice(0, 60) : [],
+        mode: "authenticated_read_only_metadata",
+        no_form_submissions: true,
+        no_button_clicks: true,
+        no_field_values_collected: true
+      };
+      const prior = existing.scan_report && typeof existing.scan_report === "object" ? existing.scan_report : {};
+      const merged = { ...prior, browser_inspection: safeReport };
+      const { data, error } = await admin.from("admin_panel_scans").update({
+        scan_report: merged, scan_status: "completed"
+      }).eq("id", scanId).eq("created_by", actor)
+        .select("id,submitted_url,normalized_url,scan_status,http_status,detected_stack,recommended_method,confidence,findings,recommendations,scan_report,scanned_at,created_at").single();
+      if (error) throw error;
+      const { error: auditError } = await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, action: "admin_panel_authenticated_read_only_inspection",
+        resource_type: "admin_panel_scan", resource_id: scanId, outcome: "success",
+        details: { inspected_url: safeReport.url, headings_count: safeReport.headings.length, links_count: safeReport.links.length, forms_count: safeReport.forms.length, buttons_count: safeReport.buttons.length }
+      });
+      if (auditError) throw auditError;
+      return json({ ok: true, data, message: "Authenticated read-only inspection saved. No forms submitted and no buttons clicked." });
+    }
+
+    if (action === "save_website_map") {
+      const scanId = String(body.scan_id || "");
+      const input = body.website_map && typeof body.website_map === "object" ? body.website_map : null;
+      if (!/^[0-9a-fA-F-]{36}$/.test(scanId) || !input) {
+        return json({ error: "A valid scan and website map are required." }, 400);
+      }
+      const { data: existing, error: readError } = await admin.from("admin_panel_scans")
+        .select("id,created_by,scan_report").eq("id", scanId).eq("created_by", actor).single();
+      if (readError || !existing) return json({ error: "Scan report not found for this admin account." }, 404);
+      const safeMap = {
+        version: 1,
+        generated_at: typeof input.generated_at === "string" ? input.generated_at.slice(0, 40) : new Date().toISOString(),
+        source: "authenticated_read_only_inspection",
+        page_title: typeof input.page_title === "string" ? input.page_title.slice(0, 200) : null,
+        page_url: typeof input.page_url === "string" ? input.page_url.slice(0, 2048) : null,
+        sections: Array.isArray(input.sections) ? input.sections.slice(0, 30).map((x: any) => ({
+          name: typeof x?.name === "string" ? x.name.slice(0, 120) : "",
+          verified: false
+        })) : [],
+        navigation: Array.isArray(input.navigation) ? input.navigation.slice(0, 80).map((x: any) => ({
+          label: typeof x?.label === "string" ? x.label.slice(0, 120) : "",
+          href: typeof x?.href === "string" ? x.href.slice(0, 2048) : "",
+          category: typeof x?.category === "string" ? x.category.slice(0, 60) : "unclassified",
+          verified: false
+        })) : [],
+        buttons: Array.isArray(input.buttons) ? input.buttons.slice(0, 60).map((x: any) => ({
+          label: typeof x?.label === "string" ? x.label.slice(0, 120) : "Unlabelled button",
+          category: typeof x?.category === "string" ? x.category.slice(0, 60) : "unclassified",
+          element_type: typeof x?.element_type === "string" ? x.element_type.slice(0, 30) : "button",
+          verified: false,
+          status: "function_not_yet_verified"
+        })) : [],
+        forms: Array.isArray(input.forms) ? input.forms.slice(0, 20).map((x: any, i: number) => ({
+          index: Number.isInteger(x?.index) ? x.index : i + 1,
+          method: typeof x?.method === "string" ? x.method.slice(0, 20) : "unknown",
+          field_count: Number.isFinite(Number(x?.field_count)) ? Number(x.field_count) : null,
+          verified: false,
+          values_collected: false
+        })) : [],
+        limitations: [
+          "This map describes visible page structure only.",
+          "Button functions and destination behavior have not been tested.",
+          "No buttons were clicked, no forms were submitted, and no field values were collected."
+        ],
+        readiness: "structure_mapped_actions_unverified"
+      };
+      const prior = existing.scan_report && typeof existing.scan_report === "object" ? existing.scan_report : {};
+      const merged = { ...prior, website_map: safeMap };
+      const { data, error } = await admin.from("admin_panel_scans").update({ scan_report: merged })
+        .eq("id", scanId).eq("created_by", actor)
+        .select("id,normalized_url,scan_report").single();
+      if (error) throw error;
+      const { error: auditError } = await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, action: "admin_panel_website_map_saved",
+        resource_type: "admin_panel_scan", resource_id: scanId, outcome: "success",
+        details: {
+          sections_count: safeMap.sections.length,
+          navigation_count: safeMap.navigation.length,
+          buttons_count: safeMap.buttons.length,
+          forms_count: safeMap.forms.length,
+          actions_verified: false
+        }
+      });
+      if (auditError) throw auditError;
+      return json({ ok: true, data, message: "Website map created or replaced on the single current record for this website URL. Button functions remain unverified." });
+    }
+
+    if (action === "invoices") {
+      const [invoiceResult, businessResult] = await Promise.all([
+        admin.from("admin_invoices").select("*").order("created_at", { ascending: false }).limit(100),
+        admin.from("authorized_businesses").select("id,business_name,owner_name,contact_email").eq("status", "active").order("business_name")
+      ]);
+      if (invoiceResult.error) throw invoiceResult.error;
+      if (businessResult.error) throw businessResult.error;
+      const businessById = new Map((businessResult.data || []).map((b: any) => [b.id, b]));
+      const data = (invoiceResult.data || []).map((invoice: any) => ({
+        ...invoice, business_name: businessById.get(invoice.business_id)?.business_name || "—"
+      }));
+      return json({ ok: true, data, businesses: businessResult.data || [] });
+    }
+
+    if (action === "create_invoice") {
+      const description = typeof body.description === "string" ? body.description.trim().slice(0, 300) : "";
+      const amount = Number(body.amount);
+      const businessId = typeof body.business_id === "string" && body.business_id ? body.business_id : null;
+      const dueDate = typeof body.due_date === "string" && body.due_date ? body.due_date : null;
+      if (!description || !Number.isFinite(amount) || amount <= 0 || amount > 1000000000) {
+        return json({ error: "Enter an invoice description and a valid amount." }, 400);
+      }
+      if (businessId) {
+        const { data: business, error: businessError } = await admin.from("authorized_businesses")
+          .select("id").eq("id", businessId).eq("status", "active").maybeSingle();
+        if (businessError) throw businessError;
+        if (!business) return json({ error: "Select a valid active business." }, 400);
+      }
+      const { data: invoiceNumber, error: numberError } = await admin.rpc("next_admin_invoice_number");
+      if (numberError) throw numberError;
+      const { data, error } = await admin.from("admin_invoices").insert({
+        invoice_number: invoiceNumber, business_id: businessId, description, amount,
+        currency: "PKR", due_date: dueDate, status: "draft", created_by: actor
+      }).select("*").single();
+      if (error) throw error;
+      await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, action: "invoice_created", resource_type: "admin_invoice",
+        resource_id: data.id, outcome: "success",
+        details: { invoice_number: data.invoice_number, amount, business_id: businessId }
+      });
+      return json({ ok: true, data, message: "Invoice created." });
+    }
+
+    if (action === "update_invoice") {
+      const id = String(body.id || "");
+      const status = String(body.status || "");
+      if (!id || !["draft", "issued", "paid", "overdue", "void"].includes(status)) {
+        return json({ error: "Choose a valid invoice status." }, 400);
+      }
+      const now = new Date().toISOString();
+      const updates: Record<string, unknown> = { status, updated_at: now };
+      if (status === "issued") updates.issued_at = now;
+      if (status === "paid") updates.paid_at = now;
+      const { data, error } = await admin.from("admin_invoices").update(updates)
+        .eq("id", id).select("*").single();
+      if (error) throw error;
+      await admin.from("admin_audit_events").insert({
+        actor_user_id: actor, action: "invoice_status_updated", resource_type: "admin_invoice",
+        resource_id: id, outcome: "success", details: { status, invoice_number: data.invoice_number }
+      });
+      return json({ ok: true, data });
+    }
+
+    return json({ error: "Unknown action" }, 400);
+  } catch (error) {
+    console.error("admin-console error", error);
+    return json({ error: error instanceof Error ? error.message : "Internal server error" }, 500);
+  }
+});
