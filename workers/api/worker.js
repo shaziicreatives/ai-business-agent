@@ -95,31 +95,43 @@ async function verifyClinicAssertion(token, secret) {
 }
 
 async function loadUltimateEstheticsSummary(env, token, claims) {
-  const base = String(env.SUPABASE_URL || "").replace(/\/$/, "");
-  const serviceKey = String(env.SUPABASE_SERVICE_ROLE_KEY || "");
-  if (!base || serviceKey.length < 32) throw new Error("Secure clinic authorization service is not configured.");
-  const headers = { apikey: serviceKey, authorization: "Bearer " + serviceKey, "content-type": "application/json" };
+  const previewNoWrites = env.PREVIEW_CLINIC_NO_DB_WRITES === "true";
+  let base = "";
+  let headers = null;
+  let business = { id: claims.business_id };
+  if (previewNoWrites) {
+    const approvedBusinessId = String(env.PREVIEW_CLINIC_APPROVED_BUSINESS_ID || "");
+    const approvedScope = String(env.PREVIEW_CLINIC_APPROVED_SCOPE || "");
+    if (approvedBusinessId !== claims.business_id || approvedScope !== "read_only_business_summary") {
+      throw new Error("Preview clinic is not on the explicit read-only test allowlist.");
+    }
+  } else {
+    base = String(env.SUPABASE_URL || "").replace(/\/$/, "");
+    const serviceKey = String(env.SUPABASE_SERVICE_ROLE_KEY || "");
+    if (!base || serviceKey.length < 32) throw new Error("Secure clinic authorization service is not configured.");
+    headers = { apikey: serviceKey, authorization: "Bearer " + serviceKey, "content-type": "application/json" };
 
-  const businessUrl = new URL(base + "/rest/v1/authorized_businesses");
-  businessUrl.searchParams.set("id", "eq." + claims.business_id);
-  businessUrl.searchParams.set("status", "eq.active");
-  businessUrl.searchParams.set("select", "id,access_request_id");
-  const businessResponse = await fetch(businessUrl, { headers });
-  if (!businessResponse.ok) throw new Error("Could not verify the approved clinic business.");
-  const businesses = await businessResponse.json();
-  const business = Array.isArray(businesses) ? businesses[0] : null;
-  if (!business?.id || !business.access_request_id) throw new Error("Clinic business is not active in Super Admin.");
+    const businessUrl = new URL(base + "/rest/v1/authorized_businesses");
+    businessUrl.searchParams.set("id", "eq." + claims.business_id);
+    businessUrl.searchParams.set("status", "eq.active");
+    businessUrl.searchParams.set("select", "id,access_request_id");
+    const businessResponse = await fetch(businessUrl, { headers });
+    if (!businessResponse.ok) throw new Error("Could not verify the approved clinic business.");
+    const businesses = await businessResponse.json();
+    business = Array.isArray(businesses) ? businesses[0] : null;
+    if (!business?.id || !business.access_request_id) throw new Error("Clinic business is not active in Super Admin.");
 
-  const requestUrl = new URL(base + "/rest/v1/access_requests");
-  requestUrl.searchParams.set("id", "eq." + business.access_request_id);
-  requestUrl.searchParams.set("status", "eq.approved");
-  requestUrl.searchParams.set("select", "id,requested_capabilities");
-  const requestResponse = await fetch(requestUrl, { headers });
-  if (!requestResponse.ok) throw new Error("Could not verify Super Admin approval.");
-  const requests = await requestResponse.json();
-  const approved = Array.isArray(requests) ? requests[0] : null;
-  if (!approved || !Array.isArray(approved.requested_capabilities) || !approved.requested_capabilities.includes("read_only_business_summary")) {
-    throw new Error("Super Admin has not approved the clinic summary permission.");
+    const requestUrl = new URL(base + "/rest/v1/access_requests");
+    requestUrl.searchParams.set("id", "eq." + business.access_request_id);
+    requestUrl.searchParams.set("status", "eq.approved");
+    requestUrl.searchParams.set("select", "id,requested_capabilities");
+    const requestResponse = await fetch(requestUrl, { headers });
+    if (!requestResponse.ok) throw new Error("Could not verify Super Admin approval.");
+    const requests = await requestResponse.json();
+    const approved = Array.isArray(requests) ? requests[0] : null;
+    if (!approved || !Array.isArray(approved.requested_capabilities) || !approved.requested_capabilities.includes("read_only_business_summary")) {
+      throw new Error("Super Admin has not approved the clinic summary permission.");
+    }
   }
 
   const summaryUrl = new URL("/api/agent/summary", claims.origin);
@@ -137,6 +149,17 @@ async function loadUltimateEstheticsSummary(env, token, claims) {
   if (!payload?.ok || !payload?.data || payload.data.data_scope !== "aggregate_only" ||
       payload.data.patient_identifiers_included !== false || payload.data.clinical_information_included !== false) {
     throw new Error("Clinic connector did not return the approved aggregate-only data scope.");
+  }
+
+  if (previewNoWrites) {
+    return {
+      ...payload.data,
+      connection_status: "verified_preview_not_persisted",
+      persistence: "disabled",
+      data_scope: "aggregate_only",
+      patient_identifiers_included: false,
+      clinical_information_included: false
+    };
   }
 
   const now = new Date().toISOString();
@@ -352,8 +375,9 @@ export default {
       const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
       if (!token) {
         response = json({ ok: false, error: "Unauthorized", request_id: requestId }, 401, requestId, origin);
-      } else if (!env.CLINIC_BRIDGE_HMAC_SECRET || !env.SUPABASE_SERVICE_ROLE_KEY || !env.SUPABASE_URL) {
-        response = json({ ok: false, error: "Preview clinic bridge is not configured", request_id: requestId }, 503, requestId, origin);
+      } else if (!env.CLINIC_BRIDGE_HMAC_SECRET ||
+          (env.PREVIEW_CLINIC_NO_DB_WRITES !== "true" && (!env.SUPABASE_SERVICE_ROLE_KEY || !env.SUPABASE_URL))) {
+        response = json({ ok: false, error: "Clinic bridge is not configured for this environment", request_id: requestId }, 503, requestId, origin);
       } else {
         try {
           const raw = await request.arrayBuffer();
